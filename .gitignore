@@ -1,0 +1,14 @@
+# Blender userdata / packaging
+*.pyc
+__pycache__/
+*.blend1
+*.zip
+
+# Local caches (never ship)
+.cache/
+*.slt
+
+# Editor
+.idea/
+.vscode/
+*.swp
