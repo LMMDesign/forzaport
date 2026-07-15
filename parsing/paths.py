@@ -1,6 +1,7 @@
 """Resolves internal "GAME:\\..." asset paths to real on-disk paths.
 
-Pure module: no bpy. Supports FH5-style extracted trees and FH6 zip packaging via ZipAssetStore.
+Pure module: no bpy. Supports extracted Media trees and Xbox/MS Store zip packaging
+(FH5, FH6, …) via ZipAssetStore.
 """
 
 import os
@@ -83,7 +84,7 @@ class GamePathResolver:
                 disk = self.tires_dir_override + suffix
                 if os.path.isfile(disk):
                     return disk
-                # FH6: GameDB names like Semi_Slick map to tire_semi_slick.zip members.
+                # GameDB names like Semi_Slick map to tire_semi_slick.zip members.
                 low_disk = self.tires_dir_override + suffix.lower()
                 if low_disk != disk and os.path.isfile(low_disk):
                     return low_disk
@@ -221,7 +222,7 @@ def resolve_tire_model_name(game_path, tires_dir_override=None, current_name="")
             modelbin = os.path.join(tires, f"tire_{suffix}", f"tireL_{suffix}.modelbin")
             if os.path.isfile(modelbin):
                 return suffix
-            # FH6 zip compounds
+            # Zip tire compounds (Xbox Media layout)
             if os.path.isfile(os.path.join(tires, f"tire_{suffix}.zip")):
                 return suffix
         for entry in sorted(os.listdir(tires)):

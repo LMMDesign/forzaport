@@ -8,15 +8,16 @@ Z-reconstruction, and image extension (wrap/clamp) from the sampler address mode
 
 import hashlib
 import os
-import tempfile
 
 import bpy
 
 MATERIAL_GRAPH_VERSION = 13
-_DDS_CACHE = os.path.join(tempfile.gettempdir(), "forza_import_dds")
 
+from ..parsing.disk_cache import dds_cache_dir
 from ..parsing.texture import Texture
 from ..parsing.material import image_name
+
+_DDS_CACHE = dds_cache_dir()
 
 _BSDF = "Principled BSDF"
 

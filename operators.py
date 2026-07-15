@@ -48,10 +48,10 @@ def _resolve_paths(filepath):
     media_name = p.stem
     parts = p.parts
     lower = [part.lower() for part in parts]
-    # FH6: .../Content/media/cars/FER_F80_25.zip  or extracted .../cars/FER_F80_25/FER_F80_25.carbin
+    # Xbox Media: .../Content/media/cars/NAME.zip  or extracted .../cars/NAME/NAME.carbin
     for i in range(len(parts) - 1):
         if lower[i] == "media" and lower[i + 1] == "cars":
-            # Prefer Content/ or Media parent as game_path so ZipAssetStore finds Materials.zip
+            # Prefer Media root so ZipAssetStore finds Materials.zip / car zips
             game_path = str(Path(*parts[: i + 1]))  # .../media
             cars_override = None
             if p.suffix.lower() == ".carbin":
@@ -69,7 +69,7 @@ def _resolve_paths(filepath):
 
 
 def _car_entry(label, name, cars_dir):
-    """Prefer extracted carbin; fall back to FH6 car zip path (resolved at import)."""
+    """Prefer extracted carbin; fall back to Media car .zip (resolved at import)."""
     carbin = os.path.join(cars_dir, name, name + ".carbin")
     if os.path.isfile(carbin):
         return (label, name, carbin)
@@ -268,8 +268,8 @@ def _resolve_materials_dir(game_path):
 def _resolve_car_root(filepath, game_path, media_name):
     """On-disk folder used to locate Animations / skeleton next to the car.
 
-    FH6 cars ship as .zip — extract the carbin via ZipAssetStore and use that cache folder
-    so Scene\\animations\\Mojo\\... becomes visible to the animation importer.
+    Xbox Media cars ship as .zip — extract the carbin via ZipAssetStore and use that cache
+    folder so Animations\\*.gr2 (FH5) or Scene\\animations\\Mojo\\... (FH6) are visible.
     """
     parent = os.path.dirname(filepath)
     has_scene = os.path.isdir(os.path.join(parent, "Scene")) or os.path.isdir(
@@ -419,7 +419,7 @@ def _guarded_import(op, filepath, *, use_db, db_path, level_of_detail, draw_grou
 # ---------------------------------------------------------------------------
 
 class IMPORT_SCENE_OT_forza_carbin(Operator, ImportHelper):
-    """Import a ForzaTech car by browsing for a .carbin or FH6 car .zip"""
+    """Browse to a car .zip from the game (or an extracted .carbin) and import it"""
 
     bl_idname = "import_scene.forza_carbin"
     bl_label = "Import Forza Car"
@@ -462,6 +462,9 @@ class IMPORT_SCENE_OT_forza_carbin(Operator, ImportHelper):
 
     def draw(self, context):
         layout = self.layout
+        box = layout.box()
+        box.label(text="Pick a car .zip from the game, or an extracted .carbin.", icon="INFO")
+        box.label(text="Or add your cars folder in Preferences for the Import menu.")
         layout.prop(self, "level_of_detail")
         layout.prop(self, "draw_group")
         layout.prop(self, "suspension_transform_type")
@@ -682,7 +685,8 @@ class IMPORT_MT_forza_cars(Menu):
         if not cars:
             layout.separator()
             layout.label(text="No cars found", icon="INFO")
-            layout.label(text="Add a library folder in Preferences > Add-ons")
+            layout.label(text="Copy game car .zips into a folder you own,")
+            layout.label(text="then add that folder in Preferences > Add-ons")
             return
         multi_game = len({c[0] for c in cars}) > 1
         groups = {}

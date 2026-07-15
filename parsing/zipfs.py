@@ -1,15 +1,16 @@
-"""Zip-backed GAME:\\ path resolution for FH6 (and later) installs.
+"""Zip-backed GAME:\\ path resolution for Xbox / MS Store Media installs (FH5, FH6, …).
 
-Cars, materials, textures and tires ship as zip archives. This module maps a GAME: path to
-either an on-disk file or a cached extract from the owning zip, so existing BinaryStream.from_path
-call sites keep working.
+Per-car archives and shared Materials/Textures/tire/shader zips live under media/cars/.
+This module maps a GAME: path to an on-disk file or a cached extract from the owning zip,
+so BinaryStream.from_path call sites keep working for both zip installs and extracted trees.
 """
 
 from __future__ import annotations
 
 import os
 import zipfile
-from pathlib import Path
+
+from .disk_cache import ZIPFS_MAX_BYTES, touch_file, trim_dir, zipfs_cache_dir
 
 
 def _norm(p: str) -> str:
@@ -27,9 +28,7 @@ class ZipAssetStore:
 
     def __init__(self, media_root: str, cache_dir: str | None = None):
         self.media_root = os.path.abspath(media_root)
-        self.cache_dir = cache_dir or os.path.join(
-            os.path.expanduser("~"), ".cache", "forza_import", "zipfs"
-        )
+        self.cache_dir = cache_dir or zipfs_cache_dir()
         self._zips: dict[str, zipfile.ZipFile] = {}
         # lower member path -> (zip_path, actual_member_name)
         self._index: dict[str, tuple[str, str]] = {}
@@ -89,26 +88,32 @@ class ZipAssetStore:
 
         lib = os.path.join(cars, "_library")
         if os.path.isdir(lib):
-            mats = os.path.join(lib, "Materials.zip")
-            if os.path.isfile(mats):
-                # GAME:\Media\cars\_library\materials\_fmnext\...
-                self._add_members(
-                    mats,
-                    (
-                        "media\\cars\\_library\\materials\\",
-                        "media\\_library\\materials\\",
-                    ),
-                )
-            tex = os.path.join(lib, "Textures.zip")
-            if os.path.isfile(tex):
-                self._add_members(
-                    tex,
-                    (
-                        "media\\cars\\_library\\textures\\",
-                        "media\\_library\\textures\\",
-                    ),
-                )
-            # shaders as per-shader zips under cars/_library/shaders/car_*.zip
+            # Materials.zip (+ FH5 Materials_pri_*.zip) and Textures counterparts
+            try:
+                for entry in os.listdir(lib):
+                    low = entry.lower()
+                    if not low.endswith(".zip"):
+                        continue
+                    zip_path = os.path.join(lib, entry)
+                    if low == "materials.zip" or low.startswith("materials_"):
+                        self._add_members(
+                            zip_path,
+                            (
+                                "media\\cars\\_library\\materials\\",
+                                "media\\_library\\materials\\",
+                            ),
+                        )
+                    elif low == "textures.zip" or low.startswith("textures_"):
+                        self._add_members(
+                            zip_path,
+                            (
+                                "media\\cars\\_library\\textures\\",
+                                "media\\_library\\textures\\",
+                            ),
+                        )
+            except OSError:
+                pass
+            # shaders as per-shader zips under cars/_library/shaders/
             shaders = os.path.join(lib, "shaders")
             if os.path.isdir(shaders):
                 try:
@@ -158,6 +163,7 @@ class ZipAssetStore:
         # Cache layout mirrors GAME rest
         out = os.path.join(self.cache_dir, key.replace("\\", os.sep))
         if os.path.isfile(out) and os.path.getsize(out) > 0:
+            touch_file(out)
             return out
         os.makedirs(os.path.dirname(out), exist_ok=True)
         z = self._open_zip(zip_path)
@@ -165,4 +171,5 @@ class ZipAssetStore:
             return None
         with z.open(member) as src, open(out, "wb") as dst:
             dst.write(src.read())
+        trim_dir(self.cache_dir, ZIPFS_MAX_BYTES, protect={out})
         return out

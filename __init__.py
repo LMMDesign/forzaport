@@ -1,13 +1,14 @@
 bl_info = {
     "name": "Import Forza Car (.carbin)",
     "author": "Based on Doliman100 ForzaTech importers; FH5/FH6 Blender addon",
-    "version": (2, 2, 0),
+    "version": (2, 2, 1),
     "blender": (4, 1, 0),
     "location": "File > Import > Forza Car (.carbin/.zip)",
     "description": "Import ForzaTech carbins (Forza Horizon / Motorsport). "
-                   "Supports extracted Media trees and FH6 zip packaging.",
-    "doc_url": "https://github.com/Doliman100/ForzaTech-extraction-tools",
-    "tracker_url": "",
+                   "Copy car .zips from the game into your own folder (zipped or extracted), "
+                   "then point the addon at that folder.",
+    "doc_url": "https://github.com/LMMDesign/forzaport",
+    "tracker_url": "https://github.com/LMMDesign/forzaport/issues",
     "support": "COMMUNITY",
     "category": "Import-Export",
 }
