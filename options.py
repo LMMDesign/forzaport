@@ -47,6 +47,7 @@ class ImportOptions:
     cars_dir_override: str = None        # remaps internal GAME:\Media\Cars
     tires_dir_override: str = None       # remaps ..\_library\scene\tires
     materials_dir_override: str = None   # remaps ..\_library\materials
+    car_zip_path: str = None             # loose or Media car .zip to register in ZipAssetStore
 
     # --- filtering / build flags ---
     requested_level_of_detail: int = 1 << 0

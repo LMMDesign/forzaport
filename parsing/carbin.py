@@ -277,6 +277,8 @@ class CarScene:
         self.part_brakes = None
         self.part_tires = None
         self.upgradable_parts = []
+        # Always present so wheel assembly can run without tire synthesis.
+        self.control_arm_models = [None] * 6
 
     def deserialize(self, stream, ctx):
         self.version = stream.read_u16()

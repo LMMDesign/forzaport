@@ -6,11 +6,14 @@ Based on the parsing and import approach from [Doliman100/ForzaTech-extraction-t
 
 ## Install
 
-1. Zip the `io_import_forza_carbin` folder so the archive root contains `__init__.py` (not a nested extra folder).
+1. Download a release zip (`io_import_forza_carbin-<version>.zip`), or build one with
+   `python scripts/build_release.py`.
 2. In Blender: **Edit → Preferences → Add-ons → Install…** and choose the zip.
 3. Enable **Import Forza Car (.carbin)**.
 
-Or copy `io_import_forza_carbin` into your Blender `scripts/addons` directory.
+The archive root must contain `io_import_forza_carbin/__init__.py` (one folder deep).
+
+Or copy the `io_import_forza_carbin` folder into your Blender `scripts/addons` directory.
 
 ## How to import a car
 
@@ -53,7 +56,8 @@ Easiest options:
 
 - Copy `_library` into your cars folder as `…\cars\_library\`, **or**
 - Add the game’s `Content\media` folder as a library root (read-only is fine), **or**
-- Set **Materials Folder** / **Tires Folder** overrides in preferences if you keep those assets elsewhere
+- Add per-game **Tire Libraries** in preferences (FH5 / FH6 / Motorsport each get their own tires folder); import picks the matching game from the car path or Mojo vs GR2 media
+- Set **Materials Folder** if you keep materials elsewhere
 
 ### GameDB (optional, better wheels)
 
@@ -63,8 +67,9 @@ Easiest options:
 
 ### Animations (optional)
 
-- **FH5 (and similar):** `Animations\*.gr2` inside the car zip/folder + LSLib `divine.exe` (with `granny2.dll` beside it).
-- **FH6:** Mojo `.clipd` / `.skeld` — **not supported** yet.
+- **FH5 (and similar):** `Animations\*.gr2` — **matrix pipeline** via bundled `tools/gr2dump` (needs [.NET 8](https://dotnet.microsoft.com/download/dotnet/8.0)). Same bake as Divine Collada local 4×4 samples.
+  - Also needs a legally obtained **`granny2.dll`** next to `tools/gr2dump/gr2dump.exe`. That proprietary Granny runtime is **not** redistributed with this addon. Static mesh import still works without it.
+- **FH6:** Mojo `.clipd` / `.skeld` under `Scene/animations/Mojo/` — native **ACL 2.1** tracks are required (bundled `tools/acl/forza_acl.dll`). Missing or unmatched ACL is a fatal import error; there is no mid fallback. Not mixed with FH5 GR2. Self-contained (no `granny2.dll`).
 
 ## Preferences summary
 
@@ -72,8 +77,9 @@ Easiest options:
 |--------|---------|
 | **Car Library Folders** | Your folder(s) of copied car `.zip` / extracted cars (quick-import menus) |
 | **GameDB Folder** | Folder of decrypted `.slt` databases |
-| **Tires / Materials** | Optional overrides if shared assets are not next to the cars |
-| **LSLib divine.exe** | Optional; `.gr2` → `.dae` for animations |
+| **Tire Libraries** | Per-game tire folders (`tire_*.zip` or extracted). Import selects FH5 / FH6 / Motorsport from the car path or Autovista media |
+| **Materials Folder** | Optional override if shared materials are not next to the cars |
+| **Import Animations** | Bake Autovista clips after car import |
 | Default LOD / draw group / wheels / materials | Used by library quick-import |
 
 ## Caches (portable)
@@ -94,13 +100,25 @@ Car `.zip` files can stay zipped — the addon extracts only what each import ne
 | Variable | Effect |
 |----------|--------|
 | `FORZA_TABLE_PATH` | Override path to a custom `material_table.json` |
-| `FORZA_ADDON_DEV=1` | Hot-reload material/importer modules on enable (developers only) |
+| `FORZA_ADDON_DEV=1` | Enable research-only hot reload, Mojo diagnostics, and pose oracle |
+
+Normal addon use does not load or run the research hooks. With development mode enabled, `FORZA_MOJO_DEBUG=1` and `FORZA_MOJO_POSE_ORACLE` become available for controlled investigation. FH6 Mojo always requires ACL 2.1.
+
+## Building a release zip
+
+```text
+python scripts/build_release.py
+```
+
+Uses `bl_info["version"]` from `__init__.py`. Excludes research modules, `.pdb`/`.lib`,
+and `granny2.dll`. See `THIRD_PARTY.md` for bundled native notes.
 
 ## License
 
-GNU GPL v3 — see `LICENSE`. Upstream parsing/import foundations: Doliman100 ForzaTech extraction tools (GPL-3.0).
+GNU GPL v3 — see `LICENSE`. Upstream parsing/import foundations: Doliman100 ForzaTech extraction tools (GPL-3.0). Third-party native notes: `THIRD_PARTY.md`.
 
 ## Credits
 
 - Doliman100 — original ForzaTech carbin/modelbin research and importers
 - Community GameDB dumps / decryption tools (not bundled)
+- nfrechette ACL / Norbyte LSLib — see `THIRD_PARTY.md`

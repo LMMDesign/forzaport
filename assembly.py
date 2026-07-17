@@ -18,6 +18,111 @@ def identity():
     return [[1 if i == j else 0 for i in range(4)] for j in range(4)]
 
 
+def is_identity_matrix(m, eps=1e-6):
+    for i in range(4):
+        for j in range(4):
+            want = 1.0 if i == j else 0.0
+            if abs(m[i][j] - want) > eps:
+                return False
+    return True
+
+
+def is_root_carbin_bone(bone_name):
+    """FTS ``IsRootCarbinBoneName`` — no carbin instance transform for these."""
+    if not bone_name or not str(bone_name).strip():
+        return False
+    n = str(bone_name).strip().lower()
+    return n in ("root", "<root>")
+
+
+def _find_bone_index(skeleton, bone_name, bone_index):
+    if skeleton is None:
+        return None
+    bones = skeleton.bones
+    if bone_name:
+        want = str(bone_name).strip().lower()
+        for i, b in enumerate(bones):
+            if (b.name or "").strip().lower() == want:
+                return i
+    if bone_index is not None and 0 <= int(bone_index) < len(bones):
+        return int(bone_index)
+    return None
+
+
+def skeleton_bone_world(skeleton, bone_name=None, bone_index=-1):
+    """World rest row-matrix for a named/indexed bone (skeleton deserializer accumulates parents)."""
+    idx = _find_bone_index(skeleton, bone_name, bone_index)
+    if idx is None:
+        return identity()
+    return [row[:] for row in skeleton.bones[idx].transform]
+
+
+def resolve_carbin_bone_world(part_skeleton, scene_skeleton, bone_name, bone_index):
+    """Carbin bone world: part modelbin skeleton first, then scene ``_skeleton`` (engine attach)."""
+    idx = _find_bone_index(part_skeleton, bone_name, bone_index)
+    if idx is not None:
+        return part_skeleton.bones[idx].transform, part_skeleton.bones[idx].name
+    idx = _find_bone_index(scene_skeleton, bone_name, bone_index)
+    if idx is not None:
+        return scene_skeleton.bones[idx].transform, scene_skeleton.bones[idx].name
+    return identity(), None
+
+
+def carbin_instance_transform(model, part_modelbin, scene_skeleton_modelbin):
+    """FTS ``TryResolveCarbinInstanceTransform``: ``carbin.T @ boneWorld(carbin.BoneName)``.
+
+    Returns a row-matrix, or ``None`` when root-bound or identity (no layer-B apply).
+    """
+    if is_root_carbin_bone(getattr(model, "bone_name", None)):
+        return None
+    part_sk = getattr(part_modelbin, "skeleton", None) if part_modelbin else None
+    scene_sk = (
+        getattr(scene_skeleton_modelbin, "skeleton", None)
+        if scene_skeleton_modelbin
+        else None
+    )
+    bone_world, _ = resolve_carbin_bone_world(
+        part_sk,
+        scene_sk,
+        getattr(model, "bone_name", None),
+        getattr(model, "bone_index", -1),
+    )
+    carbin_t = getattr(model, "transform", None) or identity()
+    inst = matmul4(carbin_t, bone_world)
+    if is_identity_matrix(inst):
+        return None
+    return inst
+
+
+def carbin_attach_bone_name(model, part_modelbin, scene_skeleton_modelbin):
+    """Scene/part bone name used for layer-B attachment tagging (``None`` if root / unresolved)."""
+    if is_root_carbin_bone(getattr(model, "bone_name", None)):
+        return None
+    part_sk = getattr(part_modelbin, "skeleton", None) if part_modelbin else None
+    scene_sk = (
+        getattr(scene_skeleton_modelbin, "skeleton", None)
+        if scene_skeleton_modelbin
+        else None
+    )
+    _bw, name = resolve_carbin_bone_world(
+        part_sk,
+        scene_sk,
+        getattr(model, "bone_name", None),
+        getattr(model, "bone_index", -1),
+    )
+    return name
+
+
+def uses_carbin_layer_b(part, model):
+    """Body parts: assembly already owns wheel/tire/brake/control-arm placement."""
+    if getattr(part, "type", None) in (44, 8, 4):
+        return False
+    bn = getattr(model, "bone_name", None) or ""
+    if bn.startswith("controlArm"):
+        return False
+    return True
+
+
 def matmul4(a, b):
     r = [[0] * 4 for _ in range(4)]
     for i in range(4):

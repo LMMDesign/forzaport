@@ -26,23 +26,206 @@ def find_media_root(root: str) -> str | None:
     return None
 
 
+def detect_game_key(*paths: str | None) -> str:
+    """Classify a path as ``fh5`` / ``fh6`` / ``fm`` / ``unknown`` from folder names."""
+    text = " ".join(
+        (p or "").replace("/", "\\").lower() for p in paths if p
+    )
+    if not text:
+        return "unknown"
+    # Longer / more specific tokens first.
+    if any(
+        tok in text
+        for tok in (
+            "forza horizon 6",
+            "horizon 6",
+            "horizon6",
+            "\\fh6\\",
+            "\\fh6_",
+            "/fh6/",
+            "fh6\\",
+        )
+    ):
+        return "fh6"
+    if any(
+        tok in text
+        for tok in (
+            "forza horizon 5",
+            "horizon 5",
+            "horizon5",
+            "\\fh5\\",
+            "\\fh5_",
+            "/fh5/",
+            "fh5\\",
+        )
+    ):
+        return "fh5"
+    if "motorsport" in text and "horizon" not in text:
+        return "fm"
+    # Compact rip layouts: ...\FH6\MER_... or ...\FH5\...
+    for part in text.replace("/", "\\").split("\\"):
+        if part == "fh6" or part.startswith("fh6_"):
+            return "fh6"
+        if part == "fh5" or part.startswith("fh5_"):
+            return "fh5"
+        if part in ("fm8", "fm2023", "forzamotorsport"):
+            return "fm"
+    return "unknown"
+
+
+def detect_game_key_from_car_media(car_root: str | None) -> str:
+    """Infer game from on-disk Autovista media beside the car (Mojo vs GR2)."""
+    if not car_root or not os.path.isdir(car_root):
+        return "unknown"
+    # FH6 Mojo
+    for rel in (
+        ("Scene", "animations", "Mojo"),
+        ("scene", "animations", "Mojo"),
+        ("Scene", "Animations", "Mojo"),
+    ):
+        if os.path.isdir(os.path.join(car_root, *rel)):
+            return "fh6"
+    # FH5 Granny
+    for name in ("Animations", "animations"):
+        anim = os.path.join(car_root, name)
+        if not os.path.isdir(anim):
+            continue
+        try:
+            if any(f.lower().endswith(".gr2") for f in os.listdir(anim)):
+                return "fh5"
+        except OSError:
+            pass
+    return "unknown"
+
+
+def resolve_import_game_key(
+    *,
+    filepath: str | None = None,
+    game_path: str | None = None,
+    car_root: str | None = None,
+) -> str:
+    """Best-effort game id for tire/material library selection."""
+    key = detect_game_key(filepath, game_path, car_root)
+    if key != "unknown":
+        return key
+    return detect_game_key_from_car_media(car_root)
+
+
+def _tires_dir_has_zips(tires_dir: str) -> bool:
+    try:
+        for entry in os.listdir(tires_dir):
+            low = entry.lower()
+            if low.endswith(".zip") and (low.startswith("tire_") or low.startswith("tirer_")):
+                return True
+    except OSError:
+        return False
+    return False
+
+
+def find_tires_dir(*roots: str | None) -> str | None:
+    """Locate ``.../cars/_library/scene/tires`` (extracted folders or tire_*.zip)."""
+    seen: set[str] = set()
+    for root in roots:
+        if not root:
+            continue
+        root = os.path.abspath(root)
+        media = find_media_root(root)
+        candidates = [
+            root if os.path.basename(root).lower() == "tires" else None,
+            os.path.join(root, "tires"),
+            os.path.join(root, "cars", "_library", "scene", "tires"),
+            os.path.join(root, "Media", "Cars", "_library", "scene", "tires"),
+            os.path.join(root, "media", "cars", "_library", "scene", "tires"),
+            os.path.join(root, "Content", "media", "cars", "_library", "scene", "tires"),
+            os.path.join(root, "Content", "Media", "Cars", "_library", "scene", "tires"),
+        ]
+        if media:
+            candidates.extend(
+                [
+                    os.path.join(media, "cars", "_library", "scene", "tires"),
+                    os.path.join(media, "Cars", "_library", "scene", "tires"),
+                ]
+            )
+        for cand in candidates:
+            if not cand:
+                continue
+            key = os.path.normcase(os.path.abspath(cand))
+            if key in seen:
+                continue
+            seen.add(key)
+            if not os.path.isdir(cand):
+                continue
+            # Prefer a folder that actually contains tire compounds.
+            try:
+                names = os.listdir(cand)
+            except OSError:
+                continue
+            if any(
+                n.lower().startswith("tire")
+                for n in names
+            ):
+                return cand
+    return None
+
+
 class GamePathResolver:
     def __init__(self, root, cars_dir_override=None, tires_dir_override=None,
-                 materials_dir_override=None):
+                 materials_dir_override=None, car_zip_path=None):
         self.root = root
         self.cars_dir_override = cars_dir_override
         self.tires_dir_override = tires_dir_override
         self.materials_dir_override = materials_dir_override
         self._zipfs = None
         media = find_media_root(root)
-        if media and (
-            os.path.isfile(os.path.join(media, "cars", "_library", "Materials.zip"))
-            or any(
-                n.lower().endswith(".zip")
-                for n in (os.listdir(os.path.join(media, "cars")) if os.path.isdir(os.path.join(media, "cars")) else [])
+        cars_dir = None
+        if media:
+            for name in ("cars", "Cars"):
+                cand = os.path.join(media, name)
+                if os.path.isdir(cand):
+                    cars_dir = cand
+                    break
+        has_car_zips = False
+        if cars_dir:
+            try:
+                has_car_zips = any(
+                    n.lower().endswith(".zip") for n in os.listdir(cars_dir)
+                )
+            except OSError:
+                has_car_zips = False
+        want_zipfs = bool(
+            car_zip_path
+            or (
+                media
+                and (
+                    (
+                        cars_dir
+                        and os.path.isfile(
+                            os.path.join(cars_dir, "_library", "Materials.zip")
+                        )
+                    )
+                    or has_car_zips
+                )
             )
-        ):
-            self._zipfs = ZipAssetStore(media)
+            or (
+                tires_dir_override
+                and os.path.isdir(tires_dir_override)
+                and _tires_dir_has_zips(tires_dir_override)
+            )
+        )
+        if want_zipfs:
+            # Prefer a real Media root; for a lone car zip use the zip's parent as
+            # a stand-in so ZipAssetStore can still cache extracts.
+            zip_media = media or (
+                os.path.dirname(os.path.abspath(car_zip_path))
+                if car_zip_path
+                else root
+            )
+            self._zipfs = ZipAssetStore(zip_media)
+            if car_zip_path:
+                stem = os.path.splitext(os.path.basename(car_zip_path))[0]
+                self._zipfs.register_car_zip(car_zip_path, stem)
+            if tires_dir_override and os.path.isdir(tires_dir_override):
+                self._zipfs.register_tires_dir(tires_dir_override)
 
     def _materials_root(self):
         if self.materials_dir_override:
@@ -210,13 +393,16 @@ def resolve_tire_model_name(game_path, tires_dir_override=None, current_name="")
     """Return tire compound suffix (e.g. 'c' -> tire_c/tireL_c) when GameDB did not supply one."""
     if current_name:
         return normalize_tire_model_name(current_name)
-    tires_root = tires_dir_override or os.path.join(game_path, "tires")
     media = find_media_root(game_path)
-    candidates = [tires_root]
-    if media:
-        candidates.append(os.path.join(media, "cars", "_library", "scene", "tires"))
+    candidates = []
+    if tires_dir_override:
+        candidates.append(tires_dir_override)
+    found = find_tires_dir(game_path, media)
+    if found:
+        candidates.append(found)
+    candidates.append(os.path.join(game_path or "", "tires"))
     for tires in candidates:
-        if not os.path.isdir(tires):
+        if not tires or not os.path.isdir(tires):
             continue
         for suffix in _TIRE_COMPOUND_FALLBACKS:
             modelbin = os.path.join(tires, f"tire_{suffix}", f"tireL_{suffix}.modelbin")

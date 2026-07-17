@@ -3,12 +3,36 @@
 __pycache__/
 *.blend1
 *.zip
+RELEASE_MANIFEST.json
 
-# Local caches (never ship)
+# Local caches / game data (never ship)
 .cache/
 *.slt
+*.fbx
+*.dds
+*.bin.gz
+
+# Native build leftovers
+*.pdb
+*.lib
+*.exp
+*.ilk
+*.obj
+
+# Proprietary Granny runtime — users supply legally obtained copy for FH5 anim
+tools/gr2dump/granny2.dll
+
+# Research / development-only modules (local workspace)
+parsing/mojo_pose_oracle.py
+parsing/mojo_bake_debug.py
 
 # Editor
 .idea/
 .vscode/
 *.swp
+*~
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
