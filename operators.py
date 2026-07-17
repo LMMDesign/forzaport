@@ -43,29 +43,39 @@ WHERE MediaName LIKE ?
 # ---------------------------------------------------------------------------
 
 def _resolve_paths(filepath):
-    """Return (game_path, media_name, cars_dir_override) for a selected .carbin or car .zip."""
+    """Return (game_path, media_name, cars_dir_override, car_zip_path) for .carbin or .zip."""
     p = Path(filepath)
     media_name = p.stem
+    car_zip = str(p.resolve()) if p.suffix.lower() == ".zip" else None
     parts = p.parts
     lower = [part.lower() for part in parts]
     # Xbox Media: .../Content/media/cars/NAME.zip  or extracted .../cars/NAME/NAME.carbin
     for i in range(len(parts) - 1):
         if lower[i] == "media" and lower[i + 1] == "cars":
-            # Prefer Media root so ZipAssetStore finds Materials.zip / car zips
             game_path = str(Path(*parts[: i + 1]))  # .../media
-            cars_override = None
-            if p.suffix.lower() == ".carbin":
-                cars_override = str(p.parent)
-            return game_path, media_name, cars_override
-    # Content root: .../Content/media/cars/...
+            cars_override = str(p.parent) if p.suffix.lower() == ".carbin" else None
+            return game_path, media_name, cars_override, car_zip
     for i, part in enumerate(lower):
         if part == "content" and i + 1 < len(lower) and lower[i + 1] == "media":
             game_path = str(Path(*parts[: i + 2]))  # .../Content/media
             cars_override = str(p.parent) if p.suffix.lower() == ".carbin" else None
-            return game_path, media_name, cars_override
-    car_folder = os.path.dirname(filepath)
-    root = os.path.dirname(car_folder)
-    return root, media_name, car_folder
+            return game_path, media_name, cars_override, car_zip
+    # Loose zip / extracted car outside Media — register the zip; prefer a Media root.
+    car_folder = os.path.dirname(os.path.abspath(filepath))
+    root = os.path.dirname(car_folder) if p.suffix.lower() == ".carbin" else car_folder
+    media = find_media_root(root) or find_media_root(car_folder)
+    if media is None:
+        cur = Path(car_folder)
+        for _ in range(4):
+            media = find_media_root(str(cur))
+            if media:
+                break
+            if cur.parent == cur:
+                break
+            cur = cur.parent
+    game_path = media or root
+    cars_override = car_folder if p.suffix.lower() == ".carbin" else None
+    return game_path, media_name, cars_override, car_zip
 
 
 def _car_entry(label, name, cars_dir):
@@ -224,20 +234,78 @@ def _select_gamedb(game_path, media_name, explicit_db, extra_dirs=()):
     return (None, readable, last_err)
 
 
-def _resolve_tires_dir(game_path):
+def _resolve_tires_dir(game_path, *, filepath=None, car_root=None):
+    """Locate shared tire compounds (folders or tire_*.zip) for this import's game.
+
+    Order:
+      1. Preference tire library matching the detected game (FH5 / FH6 / FM)
+      2. ``other`` preference entry when game is unknown
+      3. Auto-detect under the car's ``game_path`` (same install / rip)
+      4. Car Library folders that belong to the same game
+      5. Legacy single ``tires_dir`` preference
+    """
+    from .parsing.paths import detect_game_key, find_tires_dir, resolve_import_game_key
+
     prefs = get_prefs()
+    game_key = resolve_import_game_key(
+        filepath=filepath, game_path=game_path, car_root=car_root
+    )
+
+    def _pref_tires_for(keys: set[str]) -> str | None:
+        if not prefs:
+            return None
+        for item in prefs.tires_libraries:
+            if item.game not in keys or not item.path:
+                continue
+            p = bpy.path.abspath(item.path)
+            if os.path.isdir(p):
+                return p
+        return None
+
+    if game_key != "unknown":
+        found = _pref_tires_for({game_key})
+        if found:
+            return found
+    else:
+        found = _pref_tires_for({"other"})
+        if found:
+            return found
+
+    # Same Media/Content tree as the car being imported.
+    found = find_tires_dir(game_path)
+    if found:
+        return found
+
+    # Library roots: only search folders that match this game (avoid FH6 tires on FH5).
+    if prefs:
+        exact_roots: list[str] = []
+        soft_roots: list[str] = []
+        for item in prefs.library_roots:
+            path = bpy.path.abspath(item.path)
+            if not path:
+                continue
+            root_key = detect_game_key(path)
+            if game_key != "unknown" and root_key == game_key:
+                exact_roots.append(path)
+            elif game_key == "unknown" or root_key == "unknown":
+                soft_roots.append(path)
+        found = find_tires_dir(*(exact_roots or soft_roots))
+        if found:
+            return found
+
+    # Legacy single path (pre per-game libraries).
     if prefs and prefs.tires_dir:
         p = bpy.path.abspath(prefs.tires_dir)
         if os.path.isdir(p):
-            return p
-    for cand in (
-        os.path.join(game_path, "tires"),
-        os.path.join(game_path, "cars", "_library", "scene", "tires"),
-        os.path.join(game_path, "Media", "Cars", "_library", "scene", "tires"),
-        os.path.join(game_path, "media", "cars", "_library", "scene", "tires"),
-    ):
-        if os.path.isdir(cand):
-            return cand
+            legacy_key = detect_game_key(p)
+            if game_key == "unknown" or legacy_key in (game_key, "unknown"):
+                return p
+
+    if game_key != "unknown":
+        found = _pref_tires_for({"other"})
+        if found:
+            return found
+
     return None
 
 
@@ -265,19 +333,22 @@ def _resolve_materials_dir(game_path):
 # Import core (calls the new Importer directly)
 # ---------------------------------------------------------------------------
 
-def _resolve_car_root(filepath, game_path, media_name):
+def _resolve_car_root(filepath, game_path, media_name, car_zip_path=None):
     """On-disk folder used to locate Animations / skeleton next to the car.
 
     Xbox Media cars ship as .zip — extract the carbin via ZipAssetStore and use that cache
     folder so Animations\\*.gr2 (FH5) or Scene\\animations\\Mojo\\... (FH6) are visible.
     """
-    parent = os.path.dirname(filepath)
+    parent = os.path.dirname(os.path.abspath(filepath))
     has_scene = os.path.isdir(os.path.join(parent, "Scene")) or os.path.isdir(
         os.path.join(parent, "scene")
     )
-    if filepath.lower().endswith(".zip") or not has_scene:
+    zip_path = car_zip_path or (filepath if filepath.lower().endswith(".zip") else None)
+    if zip_path or not has_scene:
         media = find_media_root(game_path) or game_path
-        resolver = GamePathResolver(media)
+        resolver = GamePathResolver(media, car_zip_path=zip_path)
+        if zip_path and resolver._zipfs is not None:
+            resolver._zipfs.register_car_zip(zip_path, media_name)
         carbin = resolver.resolve(fr"GAME:\Media\Cars\{media_name}\{media_name}.carbin")
         if carbin and os.path.isfile(carbin):
             root = os.path.dirname(carbin)
@@ -299,14 +370,17 @@ def _resolve_car_root(filepath, game_path, media_name):
 def _import_carbin(filepath, *, use_db, db_path, level_of_detail, draw_group,
                    suspension_transform_type, use_materials, quadrangulate_mesh,
                    hide_decal_transparent_pass, create_placeholder_materials=True):
-    game_path, media_name, cars_override = _resolve_paths(filepath)
-    car_root = _resolve_car_root(filepath, game_path, media_name)
+    game_path, media_name, cars_override, car_zip = _resolve_paths(filepath)
+    car_root = _resolve_car_root(filepath, game_path, media_name, car_zip_path=car_zip)
     o = ImportOptions(
         game_path=game_path,
         media_name=media_name,
         cars_dir_override=cars_override,
+        car_zip_path=car_zip,
         car_root_dir=car_root,
-        tires_dir_override=_resolve_tires_dir(game_path),
+        tires_dir_override=_resolve_tires_dir(
+            game_path, filepath=filepath, car_root=car_root
+        ),
         materials_dir_override=_resolve_materials_dir(game_path),
         db_path=db_path or "",
         use_db=use_db,
@@ -348,9 +422,12 @@ def _guarded_import(op, filepath, *, use_db, db_path, level_of_detail, draw_grou
                     suspension_transform_type, use_materials, quadrangulate_mesh,
                     hide_decal_transparent_pass, create_placeholder_materials=True,
                     import_animations=False):
-    game_path, media_name, _ = _resolve_paths(filepath)
+    game_path, media_name, _, car_zip = _resolve_paths(filepath)
     if not game_path:
-        op.report({"ERROR"}, "Could not determine the car folder from the .carbin path.")
+        op.report({"ERROR"}, "Could not determine the car folder from the .carbin/.zip path.")
+        return {"CANCELLED"}
+    if filepath.lower().endswith(".zip") and not (car_zip and os.path.isfile(car_zip)):
+        op.report({"ERROR"}, f"Car zip not found: {filepath}")
         return {"CANCELLED"}
 
     prefs = get_prefs()
@@ -455,8 +532,7 @@ class IMPORT_SCENE_OT_forza_carbin(Operator, ImportHelper):
     import_animations: BoolProperty(
         name="Import Animations",
         description="After importing the mesh, build the rig and bake the car's part animations "
-                    "(doors, hood, trunk, ...). Requires the LSLib divine.exe path in preferences "
-                    "to auto-convert the .gr2 files. Adds a short conversion delay",
+                    "(doors, hood, windows, wipers, …). FH5: bundled gr2dump (.NET 8); FH6: Mojo .clipd",
         default=False,
     )
 
@@ -706,7 +782,7 @@ def menu_func_import(self, context):
     self.layout.operator(IMPORT_SCENE_OT_forza_carbin.bl_idname, text="Forza Car (.carbin/.zip)...")
     self.layout.operator(
         animation.IMPORT_SCENE_OT_forza_animations.bl_idname,
-        text="Forza Car Animations (.gr2/.dae)...",
+        text="Forza Car Animations...",
     )
 
 

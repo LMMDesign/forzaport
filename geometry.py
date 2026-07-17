@@ -55,6 +55,7 @@ class Modelbin:
         self.weights = None
         self.scale_x = 1
         self.transform = [[1 if i == j else 0 for i in range(4)] for j in range(4)]
+        self.post_bone_transform = None  # carbin instance (FTS layer B), applied after rigid bone
         self.skeleton = None
         self.materials = []
 
@@ -64,6 +65,9 @@ class Modelbin:
 
     def set_transform(self, transform):
         self.transform = transform
+
+    def set_post_bone_transform(self, transform):
+        self.post_bone_transform = transform
 
     def deserialize(self, stream, requested_level_of_detail=1 << 0, resolver=None, parse_materials=False):
         bundle = Bundle()
@@ -298,6 +302,19 @@ class Modelbin:
                     else:
                         v2[j] += v3[k] * bone_t[k][j]
                         n2[j] += n3[k] * bone_t[k][j]
+
+            post = self.post_bone_transform
+            if post is not None:
+                v4 = [0, 0, 0]
+                n4 = [0, 0, 0]
+                for j in range(3):
+                    for k in range(4):
+                        if k == 3:
+                            v4[j] += post[k][j]
+                        else:
+                            v4[j] += v2[k] * post[k][j]
+                            n4[j] += n2[k] * post[k][j]
+                v2, n2 = v4, n4
 
             n_length = math.sqrt(n2[0] * n2[0] + n2[1] * n2[1] + n2[2] * n2[2])
             n2[0] /= n_length

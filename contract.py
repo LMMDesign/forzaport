@@ -9,9 +9,15 @@ is importable outside Blender for tests/tooling.
 
 # --- Custom property keys (written by the importer, read by animation.py) ---
 PROP_CAR_ROOT = "forza_car_root"     # on-disk car folder, for locating .gr2/.dae later
-PROP_BONE = "forza_bone"             # bone name a mesh is attached to
-PROP_BONE_REST = "forza_bone_rest"   # flat 16-float row-major rest matrix
+PROP_BONE = "forza_bone"             # effective attach bone (carbin > rigid); Child Of target
+PROP_BONE_REST = "forza_bone_rest"   # flat 16-float row-major rest for PROP_BONE
 PROP_ANIM_RIG = "forza_anim_rig"     # tag on the generated armature
+# Authored bind metadata (carbin + modelbin — source of truth for attachment)
+PROP_RIGID_BONE = "forza_rigid_bone"           # Mesh.RigidBoneIndex → modelbin skeleton
+PROP_CARBIN_BONE = "forza_carbin_bone"         # CarRenderModel.bone_name
+PROP_CARBIN_BONE_INDEX = "forza_carbin_bone_index"  # CarRenderModel.bone_index (int)
+PROP_MODEL_PATH = "forza_model_path"           # CarRenderModel.path (modelbin path)
+PROP_MESH_NAME = "forza_mesh_name"             # modelbin mesh name (e.g. mirrorleft)
 
 # --- Forza Y-up (left-handed) -> Blender Z-up (right-handed). Row-major 4x4. ---
 COORD_ROWS = (
@@ -20,9 +26,3 @@ COORD_ROWS = (
     (0.0, 1.0, 0.0, 0.0),
     (0.0, 0.0, 0.0, 1.0),
 )
-
-
-def coord_matrix():
-    """COORD_ROWS as a mathutils.Matrix (Blender runtime only)."""
-    from mathutils import Matrix
-    return Matrix(COORD_ROWS)

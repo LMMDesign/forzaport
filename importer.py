@@ -26,7 +26,16 @@ from .materials.manufacturer_colors import (
 )
 from . import assembly
 from .collections import CollectionWrapper
-from .contract import PROP_BONE, PROP_BONE_REST, PROP_CAR_ROOT
+from .contract import (
+    PROP_BONE,
+    PROP_BONE_REST,
+    PROP_CARBIN_BONE,
+    PROP_CARBIN_BONE_INDEX,
+    PROP_CAR_ROOT,
+    PROP_MESH_NAME,
+    PROP_MODEL_PATH,
+    PROP_RIGID_BONE,
+)
 
 CARS_INTERNAL = r"GAME:\Media\Cars"
 TIRES_INTERNAL = r"GAME:\Media\Cars\_library\scene\tires"
@@ -37,13 +46,16 @@ class Importer:
         self.o = options
         self.resolver = GamePathResolver(
             options.game_path, options.cars_dir_override,
-            options.tires_dir_override, options.materials_dir_override)
+            options.tires_dir_override, options.materials_dir_override,
+            car_zip_path=getattr(options, "car_zip_path", None),
+        )
         self.image_cache = {}        # texture guid -> bpy image
         self.built_materials = {}    # material name -> bpy material
         self.material_specs = {}     # material name -> MaterialSpec (or None)
         self.root_collection = None
         self._builder = MaterialBuilder()
         self.media_name = options.media_name
+        self._scene_skeleton_mb = None
         self._load_stock_paint()
 
     def _load_stock_paint(self):
@@ -90,6 +102,13 @@ class Importer:
         carbin_internal = fr"{CARS_INTERNAL}\{media_name}\{media_name}.carbin"
         tire_internal = tire_modelbin_game_path(o.TireModelName) if o.TireModelName else ""
         carbin_path = self.resolver.resolve(carbin_internal)
+        if not carbin_path or not os.path.isfile(carbin_path):
+            hint = o.car_zip_path or "(no zip)"
+            raise FileNotFoundError(
+                f"Could not find {media_name}.carbin (looked up {carbin_internal}). "
+                f"Zip={hint}. Put the car .zip under Media\\Cars or pick the .zip / "
+                f"extracted .carbin via File → Import."
+            )
 
         ctx = ParseContext()
         ctx.series = o.series
@@ -98,9 +117,9 @@ class Importer:
         self.scene = scene
 
         skeleton_modelbin = None
-        if o.suspension_transform_type == 0:
-            skeleton_modelbin = Modelbin()
-            skeleton_modelbin.deserialize(BinaryStream.from_path(self.resolver.resolve(scene.skeleton_path)))
+        scene_skeleton_mb = self._load_scene_skeleton(scene)
+        if o.suspension_transform_type == 0 and scene_skeleton_mb is not None:
+            skeleton_modelbin = scene_skeleton_mb
             if o.create_spheres:
                 for bone in skeleton_modelbin.skeleton.bones:
                     self._add_sphere(bone.transform[3], bone.name)
@@ -115,8 +134,18 @@ class Importer:
                 scene.part_brakes.rotor_models = [None] * 6
                 scene.part_brakes.caliper_models = [None] * 6
             scene.control_arm_models = [None] * 6
-        elif scene.part_wheels is not None and not o.TireModelName:
-            print("Warning: no TireModelName — rubber tires will not be synthesized.")
+        elif scene.part_wheels is not None:
+            # Wheel/brake assembly still classifies models when tires are skipped
+            # (no TireModelName / DB off / missing tire files).
+            if not hasattr(scene.part_wheels, "wheel_models"):
+                scene.part_wheels.wheel_models = [None] * 6
+            if scene.part_brakes is not None:
+                if not hasattr(scene.part_brakes, "rotor_models"):
+                    scene.part_brakes.rotor_models = [None] * 6
+                if not hasattr(scene.part_brakes, "caliper_models"):
+                    scene.part_brakes.caliper_models = [None] * 6
+            if not o.TireModelName:
+                print("Warning: no TireModelName — rubber tires will not be synthesized.")
 
         self._load_models(scene, skeleton_modelbin)
 
@@ -135,7 +164,7 @@ class Importer:
         if scene.part_wheels is not None:
             assembly.init_wheel_brake_transforms(scene, o)
 
-        self._build_scene(scene)
+        self._build_scene(scene, scene_skeleton_mb)
 
         if self.root_collection is not None:
             self.root_collection.sort()
@@ -167,8 +196,13 @@ class Importer:
                     continue
                 if model.draw_groups & o.requested_draw_group == 0:
                     continue
-                if model.levels_of_detail & o.requested_level_of_detail == 0:
-                    continue
+                mpath_early = (getattr(model, "path", None) or "").lower().replace("\\", "/")
+                # Wing-mirror modelbins often advertise a different LOD mask than
+                # the meshes inside (AMG L housings are LOD1-only). Never skip
+                # the whole model on LOD — mesh-tier filter handles duplicates.
+                if "wingmirror" not in mpath_early:
+                    if model.levels_of_detail & o.requested_level_of_detail == 0:
+                        continue
 
                 p = self.resolver.resolve(model.path)
                 if not os.path.isfile(p) and o.TireModelName and "tire_" in model.path.lower():
@@ -177,18 +211,50 @@ class Importer:
                 if not os.path.isfile(p):
                     print(f"Warning: skipping missing model file: {model.path} -> {p}")
                     continue
+                mpath_load = (getattr(model, "path", None) or "").lower().replace("\\", "/")
+                lod_for_deserialize = o.requested_level_of_detail
+                if "wingmirror" in mpath_load:
+                    # Need every mesh tier present so the single-tier picker can
+                    # fall back (AMG L housings are LOD1-only).
+                    lod_for_deserialize = 0xFF
                 model.modelbin = Modelbin()
                 model.modelbin.deserialize(
                     BinaryStream.from_path(p),
-                    requested_level_of_detail=o.requested_level_of_detail,
+                    requested_level_of_detail=lod_for_deserialize,
                     resolver=self.resolver,
                     parse_materials=o.use_materials)
 
                 sphere_cb = (lambda t, n: self._add_sphere(t, n)) if o.create_spheres else None
                 assembly.apply_part_assignment(scene, o, part, model, skeleton_modelbin, sphere_cb)
 
+    def _load_scene_skeleton(self, scene):
+        """Parse ``scene/_skeleton.modelbin`` once (carbin layer B + suspension mode 0)."""
+        if self._scene_skeleton_mb is not None:
+            return self._scene_skeleton_mb if self._scene_skeleton_mb is not False else None
+        self._scene_skeleton_mb = False
+        path = getattr(scene, "skeleton_path", None)
+        if not path:
+            return None
+        p = self.resolver.resolve(path)
+        if not os.path.isfile(p):
+            print(f"Warning: scene skeleton not found: {path}")
+            return None
+        try:
+            mb = Modelbin()
+            mb.deserialize(
+                BinaryStream.from_path(p),
+                requested_level_of_detail=self.o.requested_level_of_detail,
+                resolver=self.resolver,
+                parse_materials=False,
+            )
+            self._scene_skeleton_mb = mb
+            return mb
+        except (OSError, ValueError, KeyError) as exc:
+            print(f"Warning: could not load scene skeleton ({exc})")
+            return None
+
     # ----------------------------------------------------------- scene build
-    def _build_scene(self, scene):
+    def _build_scene(self, scene, scene_skeleton_mb=None):
         import bpy
         o = self.o
         for part in [*scene.parts, *scene.upgradable_parts]:
@@ -206,9 +272,89 @@ class Importer:
                 if o.suspension_transform_type == 1 and o.create_spheres:
                     self._add_sphere(model.transform[3], model.bone_name)
 
+                carbin_attach_bone = None
+                if assembly.uses_carbin_layer_b(part, model):
+                    inst = assembly.carbin_instance_transform(
+                        model, modelbin, scene_skeleton_mb
+                    )
+                    if inst is not None:
+                        modelbin.set_post_bone_transform(inst)
+                        carbin_attach_bone = assembly.carbin_attach_bone_name(
+                            model, modelbin, scene_skeleton_mb
+                        )
+
+                mpath = (getattr(model, "path", None) or "").lower()
+                lod_mask = int(o.requested_level_of_detail)
+                # Wing mirrors: pick one LOD tier (AMG L is LOD1-only). Never import
+                # LODS0 and LOD1 of the same housing together.
+                mirror_tier = None
+                if "wingmirror" in mpath.replace("\\", "/"):
+                    present = 0
+                    for m in modelbin.meshes:
+                        present |= int(getattr(m, "levels_of_detail", 0) or 0)
+                    path_l = "wingmirrorl" in mpath.replace("\\", "/")
+                    path_r = "wingmirrorr" in mpath.replace("\\", "/")
+
+                    def _primary_lod_bit(flags: int) -> int:
+                        for bit in (1, 2, 4, 8, 16, 32, 64):
+                            if flags & bit:
+                                return bit
+                        return 0
+
+                    def _tier_has_side_housing(tier: int) -> bool:
+                        """AMG L bin stores misnamed wingMirrorR_* at LODS0; real L is LOD1."""
+                        for m in modelbin.meshes:
+                            fl = int(getattr(m, "levels_of_detail", 0) or 0)
+                            if _primary_lod_bit(fl) != tier:
+                                continue
+                            nm = (getattr(m, "name", None) or "").lower()
+                            if "sidemarker" in nm:
+                                continue
+                            if path_l and "wingmirrorl" in nm:
+                                return True
+                            if path_r and "wingmirrorr" in nm:
+                                return True
+                        return False
+
+                    if present:
+                        # Prefer requested LOD bits, then other present tiers.
+                        # AMG L: LODS0 has only misnamed wingMirrorR_* (+ SideMarker);
+                        # real wingMirrorL_* housings are LOD1 — must fall through.
+                        preferred, fallback = [], []
+                        for bit in (1, 2, 4, 8, 16, 32, 64):
+                            if not (present & bit):
+                                continue
+                            (preferred if (lod_mask & bit) else fallback).append(bit)
+                        candidates = preferred + fallback
+                        mirror_tier = None
+                        for bit in candidates:
+                            if _tier_has_side_housing(bit):
+                                mirror_tier = bit
+                                break
+                        if mirror_tier is None and candidates:
+                            mirror_tier = candidates[0]
+                        if mirror_tier is not None:
+                            lod_mask = mirror_tier
                 for mesh in modelbin.meshes:
-                    if mesh.levels_of_detail & o.requested_level_of_detail == 0:
+                    flags = int(getattr(mesh, "levels_of_detail", 0) or 0)
+                    if flags & lod_mask == 0:
                         continue
+                    if mirror_tier is not None:
+                        primary = 0
+                        for bit in (1, 2, 4, 8, 16, 32, 64):
+                            if flags & bit:
+                                primary = bit
+                                break
+                        if primary != mirror_tier:
+                            continue
+                    # Drop cross-named housings inside the wrong-side bin (AMG L@LODS0).
+                    if "wingmirror" in mpath.replace("\\", "/"):
+                        nm = (getattr(mesh, "name", None) or "").lower()
+                        if "sidemarker" not in nm:
+                            if "wingmirrorl" in mpath.replace("\\", "/") and "wingmirrorr" in nm:
+                                continue
+                            if "wingmirrorr" in mpath.replace("\\", "/") and "wingmirrorl" in nm:
+                                continue
                     if mesh.render_pass & 0x10 == 0:  # skip Shadow
                         continue
                     if o.hide_decal_transparent_pass and mesh.render_pass & 0x4 != 0:
@@ -218,7 +364,14 @@ class Importer:
 
                     md = modelbin.process_mesh(mesh)
                     _, obj = build_mesh_object(md, quadrangulate=o.quadrangulate_mesh)
-                    self._tag_bone(obj, modelbin, mesh)
+                    self._tag_bone(
+                        obj,
+                        modelbin,
+                        mesh,
+                        model,
+                        carbin_attach_bone=carbin_attach_bone,
+                        scene_skeleton_mb=scene_skeleton_mb,
+                    )
                     if o.car_root_dir:
                         obj[PROP_CAR_ROOT] = o.car_root_dir
                     self._assign_material(obj, modelbin, mesh)
@@ -307,18 +460,107 @@ class Importer:
             obj.data.materials.append(mat)
 
     # ----------------------------------------------------------- bone tagging
-    def _tag_bone(self, obj, modelbin, mesh):
-        skeleton = getattr(modelbin, "skeleton", None)
-        if skeleton is not None and 0 <= mesh.bone_index < len(skeleton.bones):
-            bone = skeleton.bones[mesh.bone_index]
-            obj[PROP_BONE] = bone.name
-            t = bone.transform  # row-vector convention: world = v . t
-            obj[PROP_BONE_REST] = [
-                -t[0][0], -t[1][0], -t[2][0], -t[3][0],
-                -t[0][2], -t[1][2], -t[2][2], -t[3][2],
-                 t[0][1],  t[1][1],  t[2][1],  t[3][1],
-                 t[0][3],  t[1][3],  t[2][3],  t[3][3],
-            ]
+    @staticmethod
+    def _bone_rest_props(bone_transform_row):
+        t = bone_transform_row
+        return [
+            -t[0][0], -t[1][0], -t[2][0], -t[3][0],
+            -t[0][2], -t[1][2], -t[2][2], -t[3][2],
+             t[0][1],  t[1][1],  t[2][1],  t[3][1],
+             t[0][3],  t[1][3],  t[2][3],  t[3][3],
+        ]
+
+    @staticmethod
+    def _scene_bone_row_rest(scene_skeleton_mb, bone_name):
+        skel = getattr(scene_skeleton_mb, "skeleton", None) if scene_skeleton_mb else None
+        if not bone_name or skel is None:
+            return None
+        want = bone_name.strip()
+        for bone in skel.bones:
+            if bone.name == want:
+                return bone.transform
+        return None
+
+    def _tag_bone(
+        self,
+        obj,
+        modelbin,
+        mesh,
+        model,
+        *,
+        carbin_attach_bone=None,
+        scene_skeleton_mb=None,
+    ):
+        """Stamp carbin/modelbin bind metadata and effective ``forza_bone`` for animation."""
+        obj[PROP_MODEL_PATH] = getattr(model, "path", None) or ""
+        obj[PROP_MESH_NAME] = getattr(mesh, "name", None) or ""
+        obj[PROP_CARBIN_BONE] = getattr(model, "bone_name", None) or ""
+        obj[PROP_CARBIN_BONE_INDEX] = int(getattr(model, "bone_index", -1))
+
+        rigid_name = None
+        rigid_rest = None
+        part_sk = getattr(modelbin, "skeleton", None)
+        if part_sk is not None and 0 <= mesh.bone_index < len(part_sk.bones):
+            rb = part_sk.bones[mesh.bone_index]
+            rigid_name = rb.name
+            rigid_rest = self._bone_rest_props(rb.transform)
+            obj[PROP_RIGID_BONE] = rigid_name
+
+        attach_name = None
+        attach_rest = None
+
+        if carbin_attach_bone:
+            row = self._scene_bone_row_rest(scene_skeleton_mb, carbin_attach_bone)
+            if row is not None:
+                attach_name = carbin_attach_bone
+                attach_rest = self._bone_rest_props(row)
+
+        if attach_name is None and not assembly.is_root_carbin_bone(
+            getattr(model, "bone_name", None)
+        ):
+            _bw, resolved = assembly.resolve_carbin_bone_world(
+                part_sk,
+                getattr(scene_skeleton_mb, "skeleton", None)
+                if scene_skeleton_mb
+                else None,
+                getattr(model, "bone_name", None),
+                getattr(model, "bone_index", -1),
+            )
+            if resolved:
+                row = self._scene_bone_row_rest(scene_skeleton_mb, resolved)
+                if row is not None:
+                    attach_name = resolved
+                    attach_rest = self._bone_rest_props(row)
+
+        if attach_name is None and rigid_name:
+            attach_name = rigid_name
+            attach_rest = rigid_rest
+
+        from .parsing.mojo_mirror_bind import resolve_skeld_mirror_attach
+
+        scene_sk = (
+            getattr(scene_skeleton_mb, "skeleton", None)
+            if scene_skeleton_mb
+            else None
+        )
+        mirror_hit = resolve_skeld_mirror_attach(
+            model_path=obj[PROP_MODEL_PATH],
+            mesh_name=obj[PROP_MESH_NAME],
+            rigid_name=rigid_name,
+            carbin_bone=getattr(model, "bone_name", None),
+            part_skeleton=part_sk,
+            scene_skeleton=scene_sk,
+        )
+        if mirror_hit is not None:
+            attach_name, attach_rest = mirror_hit
+            attach_rest = self._bone_rest_props(attach_rest)
+
+        # Aero / active-wing meshes: attach from modelbin RigidBoneIndex only
+        # (PROP_RIGID_BONE above). No mesh-name→bone invent table.
+
+        if attach_name and attach_rest is not None:
+            obj[PROP_BONE] = attach_name
+            obj[PROP_BONE_REST] = attach_rest
 
     # ----------------------------------------------------------- helpers
     def _add_sphere(self, translate, name):

@@ -1,0 +1,16 @@
+gr2dump (bundled with the Forza Car addon)
+==========================================
+
+Reads Forza Autovista Granny .gr2 tracks via LSLib and writes JSON
+(format gr2dump_v2_matrix: times + Collada-layout local 4x4 matrices, plus
+legacy open_quat/keyframes). Blender rebuilds the Divine DAE bake product
+without running Divine.exe (which crashes on these clips).
+
+Runtime
+-------
+- Windows x64
+- .NET 8 Desktop Runtime (or SDK): https://dotnet.microsoft.com/download/dotnet/8.0
+- granny2.dll beside gr2dump.exe — NOT shipped (proprietary Granny runtime).
+  Place a legally obtained copy in this folder for FH5 animation import.
+
+Static car import and FH6 Mojo ACL animation do not need granny2.dll.

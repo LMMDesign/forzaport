@@ -60,19 +60,51 @@ class ZipAssetStore:
         for name in z.namelist():
             if name.endswith("/"):
                 continue
-            n = name.replace("\\", "/")
+            n = name.replace("\\", "/").lstrip("/")
+            rel = n
+            low = n.lower()
+            for strip in ("content/media/cars/", "media/cars/"):
+                if low.startswith(strip):
+                    rel = n[len(strip) :]
+                    low = rel.lower()
+                    break
+            parts = rel.split("/")
+            # Drop leading car-folder segment when present (FER_F80_25/file.carbin).
+            if len(parts) >= 2 and "." not in parts[0]:
+                rel = "/".join(parts[1:])
+            rel_os = rel.replace("/", "\\")
             for prefix in prefixes:
-                key = _norm(prefix + n)
+                key = _norm(prefix + rel_os)
                 if key not in self._index:
                     self._index[key] = (zip_path, name)
+
+    def register_car_zip(self, zip_path: str, media_name: str | None = None) -> bool:
+        """Index one car archive so GAME:\\Media\\Cars\\Name\\... resolves from it.
+
+        Needed when the user picks a loose ``Name.zip`` outside ``media/cars/``,
+        or when ``build()`` has not yet seen that archive.
+        """
+        zip_path = os.path.abspath(zip_path)
+        if not os.path.isfile(zip_path) or not zip_path.lower().endswith(".zip"):
+            return False
+        stem = media_name or os.path.splitext(os.path.basename(zip_path))[0]
+        self.build()
+        self._add_members(zip_path, (f"media\\cars\\{stem}\\",))
+        return True
 
     def build(self):
         if self._built:
             return
         self._built = True
         media = self.media_root
-        cars = os.path.join(media, "cars")
-        if not os.path.isdir(cars):
+        # Accept Media/cars or Media/Cars
+        cars = None
+        for name in ("cars", "Cars"):
+            cand = os.path.join(media, name)
+            if os.path.isdir(cand):
+                cars = cand
+                break
+        if cars is None:
             return
 
         # Per-car zips: media/cars/FER_F80_25.zip -> media\cars\fer_f80_25\<member>
@@ -131,18 +163,38 @@ class ZipAssetStore:
             # tire compound zips
             tires = os.path.join(lib, "scene", "tires")
             if os.path.isdir(tires):
-                try:
-                    for entry in os.listdir(tires):
-                        if not entry.lower().endswith(".zip"):
-                            continue
-                        stem = entry[:-4]
-                        zip_path = os.path.join(tires, entry)
-                        self._add_members(
-                            zip_path,
-                            (f"media\\cars\\_library\\scene\\tires\\{stem}\\",),
-                        )
-                except OSError:
-                    pass
+                self.register_tires_dir(tires)
+
+    def register_tires_dir(self, tires_dir: str) -> int:
+        """Index ``tire_*.zip`` compounds from a shared library tires folder.
+
+        Used for Xbox ``media/cars/_library/scene/tires`` and for preference /
+        override folders when the car rip itself has no ``_library``.
+        """
+        self.build()
+        tires_dir = os.path.abspath(tires_dir)
+        if not os.path.isdir(tires_dir):
+            return 0
+        count = 0
+        try:
+            entries = os.listdir(tires_dir)
+        except OSError:
+            return 0
+        for entry in entries:
+            low = entry.lower()
+            if not low.endswith(".zip"):
+                continue
+            # Left/stock compounds are tire_*.zip; tireR_* is the mirrored side.
+            if not (low.startswith("tire_") or low.startswith("tirer_")):
+                continue
+            stem = entry[:-4]
+            zip_path = os.path.join(tires_dir, entry)
+            self._add_members(
+                zip_path,
+                (f"media\\cars\\_library\\scene\\tires\\{stem}\\",),
+            )
+            count += 1
+        return count
 
     def resolve_to_cache(self, game_or_rest: str) -> str | None:
         """Return a real filesystem path for the asset, extracting from zip if needed."""

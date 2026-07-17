@@ -1,23 +1,27 @@
-"""Forza part animations: rig animated car parts and bake .gr2 animations onto them.
+"""Forza part animations: rig animated car parts and bake animations onto them.
 
 The .carbin importer bakes each rigid part's skeleton transform straight into its mesh
 vertices, so an imported car has no armature. This module adds one *on top* of an already
 imported car:
 
-* During import, every object is tagged with ``forza_bone`` (the Granny skeleton bone it
-  belongs to), ``forza_car_root`` (the on-disk car folder) and ``forza_bone_rest`` (the
-  bone's rest matrix in Blender space, derived the same way the vertices were baked).
-* Here we take the car's ``Animations/*.gr2`` (Granny), convert them to ``.dae`` via LSLib
-  (or accept user-converted ``.dae``), parse the Collada XML directly, build a small armature
-  for the *animated* bones only, bone-attach the matching meshes with a Child Of constraint
-  (so the rest pose is pixel-identical), and bake each animation to an Action / NLA track.
+* During import, every object is tagged with authored bind metadata (``forza_rigid_bone``,
+  ``forza_carbin_bone``, ``forza_model_path``, ``forza_mesh_name``) and an effective
+  ``forza_bone`` / ``forza_bone_rest`` for Child Of (carbin attach bone when present,
+  else modelbin rigid bone). ``forza_car_root`` locates animation media on disk.
+* **FH5:** ``Animations/*.gr2`` (Granny) → bundled ``tools/gr2dump`` local 4×4
+  matrices → ``bake_action`` (Divine Collada product, no Divine.exe).
+* **FH6:** ``Scene/animations/Mojo/*.clipd`` (+ ``.skeld``) → native ACL 2.1
+  tracks → ``bake_mojo_action``. ACL is required; there is no mid fallback.
+  Separate system — never mixed with FH5 GR2.
+* **Legacy:** hand-picked Collada ``.dae`` when neither media type is present.
 
-Why parse the .dae ourselves
-----------------------------
-Blender 5.x removed the Collada importer (``bpy.ops.wm.collada_import`` no longer exists), so
-we cannot rely on it. A ``.dae`` is plain XML, so we read the joint hierarchy, rest matrices
-and animation samplers directly. This is version-proof and works for both auto-converted and
-hand-converted ``.dae`` files.
+Pipelines are chosen by on-disk Autovista media (``detect_anim_pipeline``), not by
+folder name heuristics or cross-game fallbacks.
+
+Why a legacy .dae path still exists
+-----------------------------------
+Blender 5.x removed Collada import. Old workflows that already have ``.dae`` files can still
+pick them; FH5 cars use gr2dump matrices; FH6 cars use Mojo only.
 
 Coordinate alignment
 --------------------
@@ -41,8 +45,6 @@ import functools
 import glob
 import math
 import os
-import subprocess
-import tempfile
 import xml.etree.ElementTree as ET
 
 import bpy
@@ -50,7 +52,9 @@ from bpy.app.handlers import persistent
 from bpy.props import BoolProperty, CollectionProperty, StringProperty
 from bpy.types import Operator
 from bpy_extras.io_utils import ImportHelper
-from mathutils import Matrix, Vector
+from mathutils import Matrix, Quaternion, Vector
+
+from .development import development_enabled
 
 from .contract import (
     COORD_ROWS, PROP_ANIM_RIG, PROP_BONE, PROP_BONE_REST, PROP_CAR_ROOT,
@@ -77,24 +81,27 @@ def _flat_to_matrix(flat):
 # ---------------------------------------------------------------------------
 
 def gather_cars(context):
-    """Group tagged objects by their car root folder (prefers the current selection)."""
+    """Group tagged objects by their car root folder (prefers the current selection).
+
+    Selecting any one part of a car expands to **all** scene objects that share
+    that ``forza_car_root`` so Child Of attachment covers every door/hood mesh,
+    not only the active selection.
+    """
     selected = [o for o in context.selected_objects if o.get(PROP_CAR_ROOT)]
-    pool = selected or [o for o in context.scene.objects if o.get(PROP_CAR_ROOT)]
+    if selected:
+        root_keys = {o[PROP_CAR_ROOT] for o in selected}
+        roots = {r: [] for r in root_keys}
+        for o in context.scene.objects:
+            r = o.get(PROP_CAR_ROOT)
+            if r in roots:
+                roots[r].append(o)
+        return roots
     roots = {}
-    for o in pool:
-        roots.setdefault(o[PROP_CAR_ROOT], []).append(o)
+    for o in context.scene.objects:
+        r = o.get(PROP_CAR_ROOT)
+        if r:
+            roots.setdefault(r, []).append(o)
     return roots
-
-
-def find_skeleton_gr2(car_root):
-    scene_dir = os.path.join(car_root, "scene")
-    if os.path.isdir(scene_dir):
-        cands = glob.glob(os.path.join(scene_dir, "*_skeleton.gr2")) or \
-            glob.glob(os.path.join(scene_dir, "*skeleton*.gr2"))
-        if cands:
-            return cands[0]
-    cands = glob.glob(os.path.join(car_root, "**", "*skeleton*.gr2"), recursive=True)
-    return cands[0] if cands else None
 
 
 def discover_gr2(car_root):
@@ -116,47 +123,183 @@ def discover_mojo_clips(car_root):
     return sorted(set(out))
 
 
-# ---------------------------------------------------------------------------
-# LSLib conversion (gr2 -> dae)
-# ---------------------------------------------------------------------------
+def discover_mojo_skeld(car_root):
+    """Find ``skeleton.skeld`` (or any ``.skeld``) under the car's Mojo folder."""
+    patterns = (
+        os.path.join(car_root, "**", "animations", "Mojo", "**", "*.skeld"),
+        os.path.join(car_root, "**", "Animations", "Mojo", "**", "*.skeld"),
+        os.path.join(car_root, "**", "*.skeld"),
+    )
+    out = []
+    for pat in patterns:
+        out.extend(glob.glob(pat, recursive=True))
+    # Prefer a file literally named skeleton.skeld
+    named = [p for p in out if os.path.basename(p).lower() == "skeleton.skeld"]
+    return (named or sorted(set(out)) or [None])[0] if out else None
 
-def convert_gr2_to_dae(divine_exe, gr2_path, skeleton_gr2, out_dae):
-    """Convert one .gr2 to .dae with LSLib's divine.exe, conforming to the skeleton.
 
-    Returns (ok, message). divine.exe flags vary between LSLib builds; the message surfaces
-    stderr so the user can adjust. The manual-.dae path remains the guaranteed fallback.
+def detect_anim_pipeline(car_root) -> str:
+    """Which Autovista system this car uses: ``fh5_gr2``, ``fh6_mojo``, or ``none``.
+
+    Content-based (not folder names). If both Mojo and GR2 somehow exist, Mojo
+    wins and a warning is printed — pipelines are never merged.
     """
-    # divine.exe (LSLib): single-file convert-model infers formats from the extensions. ``-g`` is
-    # required; ``bg3`` selects the modern GR2 path that reads Forza's compressed Granny files
-    # (needs granny2.dll next to divine.exe). The skeleton is conformed via the repeated
-    # ``-e conform -e conform-copy`` options + ``--conform-path``. No mirror/flip options are set,
-    # matching this module's C4 coordinate handling.
-    cmd = [
-        divine_exe,
-        "-a", "convert-model",
-        "-g", "bg3",
-        "-s", gr2_path,
-        "-d", out_dae,
+    mojo = discover_mojo_clips(car_root)
+    gr2s = [
+        p
+        for p in discover_gr2(car_root)
+        if "skel" not in os.path.basename(p).lower()
     ]
-    if skeleton_gr2 and os.path.isfile(skeleton_gr2):
-        cmd += ["-e", "conform", "-e", "conform-copy", "--conform-path", skeleton_gr2]
+    if mojo and gr2s:
+        print(
+            "Forza anim: both Mojo .clipd and Animations/*.gr2 found; "
+            "using FH6 Mojo pipeline only (no merge)."
+        )
+        return "fh6_mojo"
+    if mojo:
+        return "fh6_mojo"
+    if gr2s:
+        return "fh5_gr2"
+    return "none"
+
+
+def load_mojo_hinges(car_root, *, respect_mojo_config=True):
+    """Parse the car's Mojo ``.clipd`` into ACL-backed ``HingeChannel`` list.
+
+    FH6 requires ACL 2.1. Failures return ``([], error_message)`` — no mid fallback.
+    When ``MojoConfig.xml`` is present, hinge events outside its
+    ``AutovistaEvents`` list are dropped (catalog of declared mechanisms).
+    """
+    from .parsing.mojo_acl import MojoAclError
+    from .parsing.mojo_clipd import parse_clipd
+    from .parsing.mojo_config import filter_hinges_by_mojo_config, load_mojo_config
+
+    clips = discover_mojo_clips(car_root)
+    if not clips:
+        return [], "no Mojo .clipd under this car"
+    # One Autovista pack per car in practice; prefer the largest if several exist.
+    clip_path = max(clips, key=lambda p: os.path.getsize(p))
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-    except FileNotFoundError:
-        return False, f"divine.exe not found: {divine_exe}"
-    except subprocess.TimeoutExpired:
-        return False, f"Timed out converting {os.path.basename(gr2_path)}"
-    if proc.returncode != 0 or not os.path.isfile(out_dae):
-        err = (proc.stderr or proc.stdout or "").strip()
-        if "granny2.dll" in err.lower():
-            return False, ("granny2.dll is required for Forza's compressed GR2 files. Copy "
-                           "granny2.dll into the same folder as divine.exe and try again.")
-        return False, f"{os.path.basename(gr2_path)}: divine.exe failed ({proc.returncode}). {err[:400]}"
-    return True, ""
+        pack = parse_clipd(clip_path)
+        hang_by_bone = {}
+        nodes = load_mojo_skeld_nodes(car_root)
+        if nodes:
+            hang_by_bone = {n.name: n.pos for n in nodes if n.name}
+        hinges = pack.hinge_channels(hang_by_bone=hang_by_bone)
+    except MojoAclError as exc:
+        return [], f"Mojo ACL required: {exc}"
+    except (OSError, ValueError, RuntimeError) as exc:
+        return [], f"Mojo clipd failed: {exc}"
+    if not hinges:
+        return [], f"no hinge channels in {os.path.basename(clip_path)}"
+    if respect_mojo_config:
+        cfg = load_mojo_config(car_root)
+        if cfg is not None:
+            before = len(hinges)
+            hinges = filter_hinges_by_mojo_config(hinges, cfg)
+            if not hinges:
+                return (
+                    [],
+                    f"MojoConfig filtered all {before} clip event(s); "
+                    f"declared: {', '.join(cfg.autovista_events) or '(none)'}",
+                )
+    return hinges, ""
+
+
+def load_mojo_skeld_nodes(car_root):
+    """Parse ``.skeld`` with catalog + harvested bone names; ``None`` if missing."""
+    from .parsing.mojo_clipd import resolve_bone_names
+    from .parsing.mojo_skeld import parse_skeld
+
+    skeld = discover_mojo_skeld(car_root)
+    if not skeld:
+        return None
+    hints = resolve_bone_names(search_roots=[os.path.dirname(skeld), car_root])
+    try:
+        return parse_skeld(skeld, hints)
+    except (OSError, ValueError) as exc:
+        print(f"Forza anim: .skeld load failed ({exc})")
+        return None
+
+
+def _quat_xyz_to_matrix(qx, qy, qz, qw):
+    """Mojo/skeld xyzw quaternion → 3×3 rotation (mathutils Matrix)."""
+    return Quaternion((qw, qx, qy, qz)).to_matrix()
+
+
+def skeld_blender_rests(nodes):
+    """World rest matrices in Blender space for every named Mojo node."""
+    by_index = {n.index: n for n in nodes}
+    cache = {}
+
+    def forza_world(idx):
+        if idx in cache:
+            return cache[idx]
+        node = by_index[idx]
+        local = _quat_xyz_to_matrix(*node.quat).to_4x4()
+        local.translation = Vector(node.pos)
+        if node.parent >= 0 and node.parent in by_index:
+            world = forza_world(node.parent) @ local
+        else:
+            world = local
+        cache[idx] = world
+        return world
+
+    out = {}
+    for node in nodes:
+        if not node.name:
+            continue
+        out[node.name] = C4 @ forza_world(node.index)
+    return out
+
+
+def apply_car_hinge_rests(skeld_rests, nodes, car_objs=None):
+    """Return authored ``.skeld`` rests unchanged.
+
+    Boundary: never invent pivots from mesh. Door ``*HingeUpper*`` bones are
+    strut/aim joints (~0.5 m Forza Y on AMG), **not** the Autovista Mode A
+    pivot — relocating ``root_*`` onto them drops the hinge into the sill.
+    Cars without a second authored hinge field (F80 / P1 / AMG) keep the
+    floating Autovista scaffold (Z≈1.71). ``nodes`` / ``car_objs`` kept for
+    call-site compatibility only.
+    """
+    del nodes, car_objs
+    return dict(skeld_rests) if skeld_rests else {}
+
+
+def compute_parent_map_skeld(nodes, rigged):
+    """Nearest kept ancestor from a parsed ``.skeld`` (same role as Collada parent map)."""
+    rigged = set(rigged)
+    by_index = {n.index: n for n in nodes}
+    pmap = {}
+    for bn in rigged:
+        node = next((n for n in nodes if n.name == bn), None)
+        parent_bone = None
+        if node is not None:
+            p = node.parent
+            while p is not None and p >= 0:
+                anc = by_index.get(p)
+                if anc is None:
+                    break
+                if anc.name and anc.name in rigged:
+                    parent_bone = anc.name
+                    break
+                p = anc.parent
+        pmap[bn] = parent_bone
+    return pmap
+
+
+def skeld_parent_map(car_root, rigged, nodes=None):
+    """Build a parent map from `.skeld` when available; otherwise flat (no parents)."""
+    if nodes is None:
+        nodes = load_mojo_skeld_nodes(car_root)
+    if not nodes:
+        return {bn: None for bn in rigged}
+    return compute_parent_map_skeld(nodes, rigged)
 
 
 # ---------------------------------------------------------------------------
-# Collada (.dae) parsing - no dependency on Blender's removed Collada importer
+# Collada (.dae) parsing - legacy path only (FH5 uses gr2dump)
 # ---------------------------------------------------------------------------
 
 def _ln(tag):
@@ -444,44 +587,85 @@ def read_rest_pose(arm_obj):
     return {pb.name: pb.matrix.copy() for pb in arm_obj.pose.bones}
 
 
-def _remap_accessory_bone(obj, bn, available_bones):
-    """Re-home door-mounted accessories that the mesh data binds to the wrong bone.
+def _panel_bone_for_strut_tag(tag: str, available: dict[str, str]) -> str | None:
+    """Legacy FH5: unused strut/piston bind → nearest ``boneDoor*`` panel."""
+    low = (tag or "").lower()
+    if not any(tok in low for tok in ("strut", "aim", "piston", "hinge")):
+        return None
+    if (
+        "doorrf" in low
+        or low.endswith("rf")
+        or low.endswith("rr")
+        or "_r" in low
+    ) and "bonedoorrf" in available:
+        return available["bonedoorrf"]
+    if (
+        "doorlf" in low
+        or low.endswith("lf")
+        or low.endswith("lr")
+        or "_l" in low
+    ) and "bonedoorlf" in available:
+        return available["bonedoorlf"]
+    return None
 
-    The side ('wing') mirrors are modelled as their own part and the extracted mesh binds
-    them to the car root ('<root>'), not to the door - even though the game skeleton has
-    boneMirrorL/R under boneDoorLF. Left as-is they never move when the door opens. They are
-    rigidly mounted on the door, so re-home wingMirrorL/R onto boneDoorLF/RF (whose motion is
-    identical to the mirror bones in the door-open animations). Only applied when that door
-    bone actually exists for this car; otherwise the original tag is kept.
+
+def _remap_accessory_bone(obj, bn, available_bones, animated_bones=None):
+    """Resolve Child Of target for accessory skins.
+
+    FH6 ACL keys door piston/aim bones — keep modelbin ``forza_bone`` /
+    ``forza_rigid_bone`` when that bone is in the animation rig.
+
+    Root-rigid ``doorJamb*Strut*`` stays on authored ``<root>`` (game-static;
+    AMG ships both sides in one mesh).
+
+    Legacy FH5 path only: if the bind names a strut/piston that is *not*
+    rigged, fall back to the door panel so the skin still swings with the door.
     """
-    name = obj.name.lower()
-    if "wingmirror" in name:
-        side = name.split("wingmirror", 1)[1][:1]
-        cand = {"l": "boneDoorLF", "r": "boneDoorRF"}.get(side)
-        if cand and cand in available_bones:
-            return cand
+    from .contract import PROP_RIGID_BONE
+
+    animated = set(animated_bones or [])
+    available = {b.lower(): b for b in available_bones}
+    for tag in (obj.get(PROP_RIGID_BONE), bn):
+        if not tag:
+            continue
+        low = str(tag).lower()
+        if tag in animated and any(
+            tok in low for tok in ("piston", "strut", "aim", "hinge")
+        ):
+            return tag
+    for tag in (obj.get(PROP_RIGID_BONE), bn):
+        hit = _panel_bone_for_strut_tag(tag, available)
+        if hit:
+            return hit
     return bn
 
 
-def attach_objects(arm_obj, car_objs, animated_bones, rest_pose):
+def attach_objects(arm_obj, car_objs, animated_bones, rest_pose, attach_target=None):
     """Bone-attach each animated car object with a Child Of constraint (rest unchanged).
 
     The imported meshes carry their world position in vertex data, so each object's own
     transform is identity. Child Of evaluates ``world = bone_world @ inverse_matrix @ owner``;
     with ``inverse_matrix = bone_rest^-1`` and ``owner = identity`` the object stays put at rest.
+
+    ``attach_target`` maps mesh ``forza_bone`` tags → armature bone (Mode A: panel →
+    ``root_bone*``) so the Child Of relationship line lands on the hinge, not the COM.
     """
+    attach_target = attach_target or {}
     attached = 0
     for obj in car_objs:
-        bn = _remap_accessory_bone(obj, obj.get(PROP_BONE), rest_pose)
-        if bn not in animated_bones or bn not in rest_pose:
+        bn = _remap_accessory_bone(
+            obj, obj.get(PROP_BONE), rest_pose, animated_bones=animated_bones
+        )
+        target = attach_target.get(bn, bn)
+        if target not in animated_bones or target not in rest_pose:
             continue
         for con in [c for c in obj.constraints if c.name == "Forza Anim"]:
             obj.constraints.remove(con)
         con = obj.constraints.new("CHILD_OF")
         con.name = "Forza Anim"
         con.target = arm_obj
-        con.subtarget = bn
-        con.inverse_matrix = rest_pose[bn].inverted()
+        con.subtarget = target
+        con.inverse_matrix = rest_pose[target].inverted()
         attached += 1
     return attached
 
@@ -527,6 +711,50 @@ def compute_parent_map(ca, rigged):
                 anc = ca.nodes[anc]["parent"]
         pmap[bn] = parent_bone
     return pmap
+
+
+def collada_anim_from_gr2_doc(doc, skel_bones):
+    """Rebuild a ``ColladaAnim`` from ``gr2dump_v2_matrix`` JSON (Divine DAE equivalent)."""
+    ca = ColladaAnim()
+    ca.up_axis = "Y_UP"
+    bones = list(skel_bones or [])
+    by_idx = {i: b for i, b in enumerate(bones)}
+
+    for i, b in enumerate(bones):
+        name = b.get("name") or ""
+        if not name:
+            continue
+        p = int(b.get("parent", -1))
+        parent = by_idx[p].get("name") if p >= 0 and p in by_idx else None
+        pos = b.get("pos") or [0, 0, 0]
+        quat = b.get("quat") or [0, 0, 0, 1]
+        qx, qy, qz, qw = quat[:4]
+        local = Quaternion((qw, qx, qy, qz)).to_matrix().to_4x4()
+        local.translation = Vector(pos)
+        ca.nodes[name] = {"parent": parent, "local": local, "ids": {name, f"Bone_{name}"}}
+        ca.id_to_cid[name] = name
+        ca.id_to_cid[f"Bone_{name}"] = name
+
+    anims = doc.get("animations") or []
+    if not anims:
+        return ca
+    for tr in anims[0].get("tracks") or []:
+        bone = tr.get("bone") or ""
+        times = [float(t) for t in (tr.get("times") or [])]
+        raw = tr.get("matrices") or []
+        if not bone or not times or len(raw) != len(times):
+            continue
+        if bone not in ca.nodes:
+            ca.nodes[bone] = {
+                "parent": None,
+                "local": Matrix.Identity(4),
+                "ids": {bone, f"Bone_{bone}"},
+            }
+            ca.id_to_cid[bone] = bone
+            ca.id_to_cid[f"Bone_{bone}"] = bone
+        mats = [_mat_from_16([float(x) for x in row]) for row in raw]
+        ca.anim[bone] = (times, mats)
+    return ca
 
 
 def bake_action(context, arm_obj, ca, animated_bones, rest_by_bone, rest_pose, parent_map,
@@ -637,6 +865,173 @@ def bake_action(context, arm_obj, ca, animated_bones, rest_by_bone, rest_pose, p
     return action, frame_max
 
 
+def bake_mojo_action(
+    context,
+    arm_obj,
+    channel,
+    action_name,
+    *,
+    drive_bone=None,
+    open_quat=None,
+    rest_by_bone=None,
+    rest_pose=None,
+    bone_quats=None,
+    bone_locs=None,
+    parent_map=None,
+):
+    """Bake one Mojo event as a single Action / NLA track.
+
+    ``bone_quats`` is ``[(bone_name, xyzw_quat), ...]`` — primary panel/hinge plus
+    any piston/aim helpers that share the event curve. Each bone is keyed with its
+    own bone-local open pose; armature parenting composes nested helpers.
+
+    ``bone_locs`` maps bone → Forza **bone-local** open translation (metres) from
+    nch=0 translation mids in this car's ``.clipd`` — not from FH5 / live capture.
+    """
+    if bone_quats is None:
+        bone = drive_bone or channel.bone_hint
+        oq = open_quat if open_quat is not None else getattr(channel, "open_quat", None)
+        if oq is None:
+            oq = (0.0, 0.0, 0.0, 1.0)
+        bone_quats = [(bone, oq)] if bone else []
+
+    bone_quats = [(b, q) for b, q in bone_quats if b and arm_obj.pose.bones.get(b)]
+    if not bone_quats:
+        return None, "no bone"
+
+    rest_by_bone = rest_by_bone or {}
+    rest_pose = rest_pose or {}
+    parent_map = parent_map or {}
+    bone_locs = bone_locs or {}
+    for bone, _oq in bone_quats:
+        if rest_pose.get(bone) is None or rest_by_bone.get(bone) is None:
+            return None, f"missing rest for '{bone}'"
+
+    scene = context.scene
+    fps = scene.render.fps / max(scene.render.fps_base, 1e-6)
+    duration = channel.duration if channel.duration > 0 else (31.0 / 30.0)
+    steps = max(2, int(round(duration * fps)))
+    prim_oq = bone_quats[0][1]
+    q_prim = Quaternion((prim_oq[3], prim_oq[0], prim_oq[1], prim_oq[2])).normalized()
+    amp = channel.amplitude_deg or math.degrees(q_prim.angle) or 1.0
+    q_id = Quaternion((1.0, 0.0, 0.0, 0.0))
+    # parent_map retained for call-site compatibility; bone-local ACL/mid keys
+    # rely on armature parenting instead of bake-time parent compensation.
+    _ = parent_map
+
+    def local_aim_world(bone: str, oq, weight: float, direct_loc=None):
+        """World pose of ``bone`` if its parent stay at rest (Forza R/T on own rest)."""
+        rest = rest_pose[bone]
+        r_b = rest_by_bone[bone]
+        w_rest_f = C4.inverted() @ r_b
+        w = max(0.0, min(1.0, weight))
+        q_open = Quaternion((oq[3], oq[0], oq[1], oq[2])).normalized()
+        q = q_id.slerp(q_open, w)
+        r_local = q.to_matrix().to_4x4()
+        mc = w_rest_f @ r_local
+        loc = direct_loc if direct_loc is not None else bone_locs.get(bone)
+        if loc is not None and w > 1e-8:
+            # Authored mid ΔT is bone-local (skeld axes); lift into Forza world.
+            delta_f = w_rest_f.to_3x3() @ Vector(
+                (float(loc[0]), float(loc[1]), float(loc[2]))
+            )
+            mc = mc.copy()
+            loc_weight = 1.0 if direct_loc is not None else w
+            mc.translation = Vector(w_rest_f.translation) + loc_weight * delta_f
+        return (C4 @ mc @ r_b.inverted()) @ rest
+
+    acl_drive_by_bone = {
+        drv.bone: drv
+        for drv in (getattr(channel, "drives", None) or [])
+        if drv.bone and getattr(drv, "acl_quats", None)
+    }
+
+    def sample_acl_drive(drv, t):
+        """Interpolate the native ACL local Q/T sample at event time."""
+        quats = list(getattr(drv, "acl_quats", None) or [])
+        locs = list(getattr(drv, "acl_locs", None) or [])
+        if not quats:
+            return None
+        rate = float(getattr(drv, "acl_sample_rate", 0.0) or 0.0)
+        pos = max(0.0, min(float(len(quats) - 1), t * rate)) if rate > 0 else 0.0
+        i0 = int(math.floor(pos))
+        i1 = min(i0 + 1, len(quats) - 1)
+        alpha = pos - i0
+        q0 = Quaternion((quats[i0][3], quats[i0][0], quats[i0][1], quats[i0][2])).normalized()
+        q1 = Quaternion((quats[i1][3], quats[i1][0], quats[i1][1], quats[i1][2])).normalized()
+        q = q0.slerp(q1, alpha)
+        q_xyzw = (q.x, q.y, q.z, q.w)
+        loc = None
+        if i0 < len(locs):
+            l0 = locs[i0]
+            l1 = locs[i1] if i1 < len(locs) else l0
+            loc = tuple(float(l0[j]) + alpha * (float(l1[j]) - float(l0[j])) for j in range(3))
+        return q_xyzw, loc
+
+    for pbone in arm_obj.pose.bones:
+        pbone.rotation_mode = "QUATERNION"
+        pbone.matrix_basis = Matrix.Identity(4)
+
+    if arm_obj.animation_data is None:
+        arm_obj.animation_data_create()
+    action = bpy.data.actions.new(action_name)
+    arm_obj.animation_data.action = action
+
+    edit_prefs = context.preferences.edit
+    prev_interp = edit_prefs.keyframe_new_interpolation_type
+    edit_prefs.keyframe_new_interpolation_type = "LINEAR"
+    try:
+        frame_max = 1
+        for i in range(steps + 1):
+            t = duration * i / steps
+            frame = 1 + int(round(t * fps))
+            frame_max = max(frame_max, frame)
+            deg = channel.sample_degrees(t)
+            weight = 0.0 if amp < 1e-6 else (deg / amp)
+
+            # ACL / mid open quats are bone-local. Build a "parent at rest" world
+            # pose per bone and key that as matrix_basis; Blender parenting composes
+            # keyed ancestors. Do NOT compensate against other keyed parents here —
+            # that fights nested mechanisms (combined AEROUP: hinge=boneWingRF while
+            # rear struts parent under bonewing) and causes raise→drop→tilt artifacts.
+            worlds = {}
+            for bone, oq in bone_quats:
+                acl_sample = sample_acl_drive(acl_drive_by_bone.get(bone), t)
+                if acl_sample is not None:
+                    sample_q, sample_loc = acl_sample
+                    worlds[bone] = local_aim_world(
+                        bone, sample_q, 1.0, direct_loc=sample_loc
+                    )
+                else:
+                    worlds[bone] = local_aim_world(bone, oq, weight)
+
+            for pbone in arm_obj.pose.bones:
+                pbone.matrix_basis = Matrix.Identity(4)
+
+            for bone, _oq in bone_quats:
+                pb = arm_obj.pose.bones[bone]
+                pb.rotation_mode = "QUATERNION"
+                rest = rest_pose[bone]
+                pb.matrix_basis = rest.inverted() @ worlds[bone]
+                pb.keyframe_insert("location", frame=frame)
+                pb.keyframe_insert("rotation_quaternion", frame=frame)
+    finally:
+        edit_prefs.keyframe_new_interpolation_type = prev_interp
+
+    arm_obj.animation_data.action = None
+    track = arm_obj.animation_data.nla_tracks.new()
+    track.name = action_name
+    strip = track.strips.new(action_name, 1, action)
+    slots = getattr(action, "slots", None)
+    if slots:
+        try:
+            strip.action_slot = slots[0]
+        except (AttributeError, TypeError):
+            pass
+    track.mute = True
+    return action, frame_max
+
+
 def validate_alignment(ca, animated_bones, rest_by_bone):
     """Compare C4 @ (collada rest) vs the stored Forza rest; returns (max_dev_m, bone)."""
     worst, worst_bone = None, None
@@ -649,6 +1044,24 @@ def validate_alignment(ca, animated_bones, rest_by_bone):
         if worst is None or d > worst:
             worst, worst_bone = d, bn
     return worst, worst_bone
+
+
+def _drive_has_motion(drv) -> bool:
+    """True when a drive has usable rotation or translation to key."""
+    from .parsing.mojo_clipd import quat_angle_deg
+
+    if getattr(drv, "axis_from_mid", False):
+        return True
+    if quat_angle_deg(tuple(getattr(drv, "open_quat", (0, 0, 0, 1)))) >= 0.5:
+        return True
+    if str(getattr(drv, "quat_source", "") or "").startswith("acl_"):
+        locs = list(getattr(drv, "acl_locs", None) or [])
+        if any(max(abs(float(c)) for c in loc) > 1e-5 for loc in locs):
+            return True
+    loc = getattr(drv, "open_loc", None)
+    if loc is not None and max(abs(float(c)) for c in loc) > 1e-5:
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -674,7 +1087,17 @@ class IMPORT_SCENE_OT_forza_animations(Operator, ImportHelper):
         default=False,
     )
 
-    _SKIP_TOKENS = ("piston", "strut", "aim", "hinge", "spindle", "blade")
+    _SKIP_TOKENS = ("piston", "strut", "aim", "spindle", "blade")
+
+    @classmethod
+    def _skip_helper_bone(cls, bone_name: str) -> bool:
+        """Skip door strut/piston helpers; never skip active-aero ``boneWingHinge*``."""
+        low = (bone_name or "").lower()
+        if "winghinge" in low or low.startswith("bonewing"):
+            return False
+        if low in ("bonewing", "bonewinglf", "bonewingrf"):
+            return False
+        return any(tok in low for tok in cls._SKIP_TOKENS)
 
     def _resolve_car(self, context):
         roots = gather_cars(context)
@@ -692,48 +1115,14 @@ class IMPORT_SCENE_OT_forza_animations(Operator, ImportHelper):
             return {"CANCELLED"}
         self._car_root, self._car_objs = resolved
 
-        prefs = _prefs()
-        divine = bpy.path.abspath(prefs.lslib_path) if prefs and prefs.lslib_path else ""
-        if divine and os.path.isfile(divine):
+        # FH5 .gr2 / FH6 Mojo: no file picker. Legacy .dae picker only if neither exists.
+        if detect_anim_pipeline(self._car_root) != "none":
             return self.execute(context)
         context.window_manager.fileselect_add(self)
         return {"RUNNING_MODAL"}
 
     def _collect_dae(self, context):
-        prefs = _prefs()
-        divine = bpy.path.abspath(prefs.lslib_path) if prefs and prefs.lslib_path else ""
-        if divine and os.path.isfile(divine):
-            skel = find_skeleton_gr2(self._car_root)
-            gr2s = discover_gr2(self._car_root)
-            if not gr2s:
-                mojo = discover_mojo_clips(self._car_root)
-                if mojo:
-                    self.report(
-                        {"ERROR"},
-                        "This car uses FH6 Mojo animations (.clipd under Scene/animations/Mojo/), "
-                        "not Granny .gr2. LSLib/divine cannot convert Mojo — animation import is "
-                        f"not supported yet ({len(mojo)} clip(s) found).",
-                    )
-                else:
-                    self.report(
-                        {"ERROR"},
-                        f"No Animations\\*.gr2 found under {self._car_root}.",
-                    )
-                return None, None
-            tmpdir = tempfile.mkdtemp(prefix="forza_anim_")
-            dae_list = []
-            for g in gr2s:
-                out = os.path.join(tmpdir, os.path.splitext(os.path.basename(g))[0] + ".dae")
-                ok, msg = convert_gr2_to_dae(divine, g, skel, out)
-                if ok:
-                    dae_list.append(out)
-                else:
-                    self.report({"WARNING"}, msg)
-            if not dae_list:
-                self.report({"ERROR"}, "LSLib produced no .dae files. Check divine.exe / flags.")
-                return None, None
-            return dae_list, tmpdir
-
+        """Legacy Collada picker only — FH5 GR2 uses gr2dump, not Divine."""
         if self.files:
             dae_list = [os.path.join(self.directory, f.name)
                         for f in self.files if f.name.lower().endswith(".dae")]
@@ -742,11 +1131,564 @@ class IMPORT_SCENE_OT_forza_animations(Operator, ImportHelper):
         else:
             dae_list = []
         if not dae_list:
-            self.report({"ERROR"},
-                        "Set the LSLib divine.exe path in addon preferences to auto-convert, "
-                        "or choose .dae files you converted with LSLib.")
+            if detect_anim_pipeline(self._car_root) != "none":
+                return [], None
+            self.report(
+                {"ERROR"},
+                "No Animations\\*.gr2 or Mojo .clipd on this car. "
+                "Pick legacy .dae files if you already converted them.",
+            )
             return None, None
         return dae_list, None
+
+    def _execute_mojo(self, context, rest_by_bone):
+        """FH6 Autovista: Mojo ACL 2.1 only (never FH5 GR2, never mid fallback)."""
+        from .parsing.mojo_clipd import (
+            _is_door_bone,
+            _is_panel_bone,
+            action_name_from_event,
+            quat_angle_deg,
+            skeld_panel_root_name,
+        )
+        from .parsing.mojo_skeld import (
+            skeld_aero_mechanism_roots,
+            skeld_door_mounted_mirror_bones,
+            skeld_subtree_bones,
+        )
+
+        hinges, err = load_mojo_hinges(self._car_root)
+        if err:
+            self.report({"ERROR"}, f"Mojo animation: {err}")
+            return {"CANCELLED"}
+
+        # Explicit development build only; never part of normal addon evaluation.
+        oracle_hits = 0
+        oracle_src = ""
+        if development_enabled():
+            try:
+                from .parsing.mojo_pose_oracle import (
+                    apply_pose_oracle_to_hinges,
+                    discover_pose_oracle,
+                    load_pose_oracle,
+                    pose_oracle_enabled,
+                )
+            except ImportError:
+                pass
+            else:
+                try:
+                    if pose_oracle_enabled():
+                        opath = discover_pose_oracle(self._car_root)
+                        if opath is not None:
+                            oracle = load_pose_oracle(opath)
+                            if oracle:
+                                oracle_hits = apply_pose_oracle_to_hinges(hinges, oracle)
+                                oracle_src = str(opath)
+                                print(
+                                    f"Forza Mojo POSE ORACLE: {oracle_hits} bone(s) from "
+                                    f"{opath.name} (source={oracle.get('source')}) — DEBUG only"
+                                )
+                except Exception as exc:
+                    print(f"Forza Mojo pose oracle skipped ({exc})")
+
+        nodes = load_mojo_skeld_nodes(self._car_root)
+        skeld_raw = skeld_blender_rests(nodes) if nodes else {}
+        # Authored .skeld rests only (scaffold). *HingeUpper* is strut joint, not Mode A pivot.
+        skeld_rests = apply_car_hinge_rests(
+            skeld_raw, nodes, car_objs=self._car_objs
+        )
+
+        animated = set()
+        drive_for = {}
+        quat_for = {}
+        attach_target = {}
+        for h in hinges:
+            panel = h.bone_hint
+            if not panel:
+                continue
+            if self.only_default_parts and self._skip_helper_bone(panel):
+                continue
+            # FH5 GR2 OrientationCurves key the **panel** (boneDoorLF), not root_*.
+            # Mojo mid is authored for that same binding bone. Keying root_* applied
+            # the panel quat in the scaffold frame — doors never looked right on FH6.
+            # Match GR2: drive the panel; keep root at authored rest (hierarchy parent).
+            # Mode B (multi-sibling aero): still key each panel, not a shared root.
+            root = skeld_panel_root_name(nodes, panel) if nodes else None
+            real_mid_drives = [
+                drv
+                for drv in (getattr(h, "drives", None) or [])
+                if drv.bone
+                and getattr(drv, "axis_from_mid", False)
+                and quat_angle_deg(tuple(getattr(drv, "open_quat", (0, 0, 0, 1)))) > 0.5
+            ]
+            # Multiple *panel* siblings (boneWingLF + boneWingRF), not hinge helpers.
+            panel_mid_drives = [
+                drv
+                for drv in real_mid_drives
+                if _is_panel_bone(drv.bone) and "hinge" not in (drv.bone or "").lower()
+            ]
+            multi_panel = len(panel_mid_drives) > 1 and not _is_door_bone(panel)
+            door_panel = _is_door_bone(panel)
+            acl_channel = str(getattr(h, "quat_source", "") or "").startswith(
+                "acl_"
+            ) or any(
+                str(getattr(drv, "quat_source", "") or "").startswith("acl_")
+                for drv in (getattr(h, "drives", None) or [])
+            )
+            # Never redirect an ACL panel pose onto root_bone*.
+            # Also: only Mode-A-key root_* when that root appears in the clip
+            # binding (file-authored). Skeld root_* is hierarchy scaffold —
+            # AMG root_bonewing is not bound and must stay at rest.
+            bound_names = {
+                b for b in (getattr(h, "bound_bones", None) or []) if b
+            }
+            for drv in getattr(h, "drives", None) or []:
+                bn = getattr(drv, "bone", None)
+                if bn:
+                    bound_names.add(bn)
+            root_is_bound = bool(root and root in bound_names)
+            drive = (
+                panel
+                if (
+                    acl_channel
+                    or multi_panel
+                    or door_panel
+                    or not root
+                    or not root_is_bound
+                )
+                else root
+            )
+            if panel in skeld_rests:
+                rest_by_bone[panel] = skeld_rests[panel]
+            if drive in skeld_rests:
+                rest_by_bone[drive] = skeld_rests[drive]
+            if root and root in skeld_rests:
+                rest_by_bone[root] = skeld_rests[root]
+            if panel not in rest_by_bone and drive not in rest_by_bone:
+                continue
+            animated.add(panel)
+            if drive != panel:
+                animated.add(drive)
+            if root and root != drive:
+                animated.add(root)
+            # Door/GR2: meshes follow keyed panel. Multi-panel aero: own bone.
+            # Non-door Mode A (trunk etc.): still follow keyed root when drive is root.
+            attach_target[panel] = (
+                panel
+                if (acl_channel or multi_panel or door_panel or not root_is_bound)
+                else drive
+            )
+            if root and multi_panel:
+                attach_target[root] = root
+            # Filter helpers to this mechanism root (not the Mode-B panel alone).
+            mech_anchor = root or drive
+            mech_bones = None
+            if nodes and mech_anchor:
+                mech_bones = set(skeld_subtree_bones(nodes, [mech_anchor]))
+                mech_bones.add(mech_anchor)
+                mech_bones.add(panel)
+            oq = tuple(getattr(h, "open_quat", (0.0, 0.0, 0.0, 1.0)))
+            # Boundary: clip mid sense only — never hang_pick conjugate rewrite.
+            kind = getattr(h, "quat_source", "") or getattr(h, "mechanism", "") or "mid"
+            open_loc = getattr(h, "open_loc", None)
+            h.mechanism = kind
+            h.open_quat = oq
+            acl_helpers = str(kind).startswith("acl_") or any(
+                str(getattr(drv, "quat_source", "") or "").startswith("acl_")
+                for drv in (getattr(h, "drives", None) or [])
+            )
+            if multi_panel:
+                bone_quats = []
+                for drv in panel_mid_drives:
+                    bn = drv.bone
+                    if bn not in rest_by_bone and bn in skeld_rests:
+                        rest_by_bone[bn] = skeld_rests[bn]
+                    if bn not in rest_by_bone:
+                        continue
+                    animated.add(bn)
+                    attach_target[bn] = bn
+                    qo = tuple(getattr(drv, "open_quat", (0.0, 0.0, 0.0, 1.0)))
+                    bone_quats.append((bn, qo))
+                for drv in real_mid_drives:
+                    bn = drv.bone
+                    if any(bn == b for b, _ in bone_quats):
+                        continue
+                    if (
+                        not acl_helpers
+                        and mech_bones is not None
+                        and bn not in mech_bones
+                    ):
+                        continue
+                    if bn in skeld_rests:
+                        rest_by_bone[bn] = skeld_rests[bn]
+                    if bn not in rest_by_bone:
+                        continue
+                    animated.add(bn)
+                    attach_target[bn] = bn
+                    qo = tuple(getattr(drv, "open_quat", (0.0, 0.0, 0.0, 1.0)))
+                    bone_quats.append((bn, qo))
+                # ACL may add hinge/piston tracks that mid never created as panel drives.
+                if acl_helpers:
+                    for drv in getattr(h, "drives", None) or []:
+                        bn = drv.bone
+                        if not bn or any(bn == b for b, _ in bone_quats):
+                            continue
+                        if not _drive_has_motion(drv):
+                            continue
+                        if bn in skeld_rests:
+                            rest_by_bone[bn] = skeld_rests[bn]
+                        if bn not in rest_by_bone:
+                            continue
+                        animated.add(bn)
+                        attach_target[bn] = bn
+                        bone_quats.append(
+                            (bn, tuple(getattr(drv, "open_quat", (0.0, 0.0, 0.0, 1.0))))
+                        )
+                # Hoodvent panel→hinge quat copy retired: invents motion on bones
+                # that have no authored mid/ACL track. Only key file-backed drives.
+                if not bone_quats:
+                    continue
+            else:
+                bone_quats = [(drive, oq)]
+                # Rear wing mid-only: helper mids under a keyed root compounded into
+                # strut fly-aways. ACL 2.1 supplies real per-helper open poses — key them.
+                panel_l = (panel or "").lower()
+                drive_l = (drive or "").lower()
+                acl_helpers = any(
+                    str(getattr(drv, "quat_source", "") or "").startswith("acl_")
+                    for drv in (getattr(h, "drives", None) or [])
+                )
+                skip_helper_mids = (
+                    panel_l == "bonewing"
+                    or drive_l in ("bonewing", "root_bonewing")
+                ) and not acl_helpers
+                if not skip_helper_mids:
+                    for drv in getattr(h, "drives", None) or []:
+                        bn = drv.bone
+                        if not bn:
+                            continue
+                        if bn == panel:
+                            continue
+                        # ACL tracks are authoritative; do not clip to skeld subtree.
+                        if (
+                            not acl_helpers
+                            and mech_bones is not None
+                            and bn not in mech_bones
+                        ):
+                            continue
+                        if self.only_default_parts and self._skip_helper_bone(bn):
+                            continue
+                        # Skip empty helper mids (already filtered in hinge_channels).
+                        # Keep translation-only ACL aims (e.g. boneWingHingeLowerAim).
+                        if not _drive_has_motion(drv):
+                            continue
+                        if bn in skeld_rests:
+                            rest_by_bone[bn] = skeld_rests[bn]
+                        if bn not in rest_by_bone:
+                            continue
+                        animated.add(bn)
+                        attach_target[bn] = bn
+                        qo = tuple(getattr(drv, "open_quat", (0.0, 0.0, 0.0, 1.0)))
+                        bone_quats.append((bn, qo))
+            # Production: ACL / authored mid bone-local quats only. Do not remap
+            # door rests onto Local +Y (that rewrote skeld orientation).
+            acl_pose = str(kind).startswith("acl_") or any(
+                str(getattr(drv, "quat_source", "") or "").startswith("acl_")
+                for drv in (getattr(h, "drives", None) or [])
+            )
+            if door_panel and bone_quats and oracle_hits > 0:
+                kind = f"{kind}+pose_oracle" if kind else "pose_oracle"
+            elif door_panel and bone_quats and acl_pose:
+                kind = f"{kind}+acl" if kind and "+acl" not in kind else (kind or "acl_open")
+            drive_for[id(h)] = drive
+            locs = {}
+            # Mid open_loc is bone-local ΔT; ACL per-sample locs are applied in bake.
+            if open_loc is not None and bone_quats:
+                locs[bone_quats[0][0]] = tuple(open_loc)
+            for drv in getattr(h, "drives", None) or []:
+                bn = getattr(drv, "bone", None)
+                dloc = getattr(drv, "open_loc", None)
+                if (
+                    bn
+                    and dloc is not None
+                    and any(bn == b for b, _ in bone_quats)
+                    and max(abs(float(c)) for c in dloc) > 1e-5
+                ):
+                    locs[bn] = tuple(dloc)
+            quat_for[id(h)] = (bone_quats, kind, locs)
+
+            if nodes and _is_door_bone(panel):
+                for mb in skeld_door_mounted_mirror_bones(nodes, panel):
+                    if mb in skeld_rests:
+                        rest_by_bone[mb] = skeld_rests[mb]
+                        animated.add(mb)
+
+        if nodes:
+            for anchor in skeld_aero_mechanism_roots(nodes):
+                for bone in skeld_subtree_bones(nodes, [anchor]):
+                    if bone in skeld_rests:
+                        rest_by_bone[bone] = skeld_rests[bone]
+                        animated.add(bone)
+
+        hinges = [h for h in hinges if id(h) in drive_for]
+        if not animated or not hinges:
+            self.report(
+                {"ERROR"},
+                "Mojo clips found, but no bound bones matched this car's tagged parts. "
+                "Re-import the .carbin so objects keep forza_bone tags.",
+            )
+            return {"CANCELLED"}
+
+        self._remove_existing_rig(self._car_objs)
+        parent_map = skeld_parent_map(self._car_root, animated, nodes=nodes)
+        car_name = os.path.basename(os.path.normpath(self._car_root))
+        arm_obj = build_rig(
+            context, f"{car_name}_anim", sorted(animated), rest_by_bone, parent_map
+        )
+        context.view_layer.update()
+        rest_pose = read_rest_pose(arm_obj)
+        attached = attach_objects(
+            arm_obj, self._car_objs, animated, rest_pose, attach_target=attach_target
+        )
+
+        baked = 0
+        span_end = context.scene.frame_start
+        src_note = {}
+        for h in hinges:
+            name = action_name_from_event(h.event, h.bone_hint)
+            if any(
+                t.name == name
+                for t in (
+                    arm_obj.animation_data.nla_tracks if arm_obj.animation_data else []
+                )
+            ):
+                continue
+            drive = drive_for.get(id(h), h.bone_hint)
+            packed = quat_for.get(
+                id(h),
+                ([(drive, getattr(h, "open_quat", (0, 0, 0, 1)))], "", {}),
+            )
+            if len(packed) == 2:
+                bone_quats, kind = packed
+                bone_locs = {}
+            else:
+                bone_quats, kind, bone_locs = packed
+            action, info = bake_mojo_action(
+                context,
+                arm_obj,
+                h,
+                name,
+                drive_bone=drive,
+                open_quat=bone_quats[0][1] if bone_quats else None,
+                bone_quats=bone_quats,
+                bone_locs=bone_locs,
+                rest_by_bone=rest_by_bone,
+                rest_pose=rest_pose,
+                parent_map=parent_map,
+            )
+            if action is not None:
+                baked += 1
+                src_note[h.source] = src_note.get(h.source, 0) + 1
+                if kind:
+                    src_note[kind] = src_note.get(kind, 0) + 1
+                helpers = max(0, len(bone_quats) - 1)
+                if helpers:
+                    src_note["helpers"] = src_note.get("helpers", 0) + helpers
+                if isinstance(info, int):
+                    span_end = max(span_end, info)
+
+        if span_end > context.scene.frame_end:
+            context.scene.frame_end = span_end
+
+        for pb in arm_obj.pose.bones:
+            pb.matrix_basis = Matrix.Identity(4)
+        context.view_layer.update()
+
+        try:
+            bpy.app.timers.register(
+                functools.partial(_deferred_rebind, arm_obj.name), first_interval=0.0
+            )
+        except (RuntimeError, ValueError, TypeError):
+            rebind_strip_slots(arm_obj)
+
+        if development_enabled():
+            try:
+                from .parsing.mojo_bake_debug import (
+                    emit_mojo_bake_debug,
+                    mojo_debug_enabled,
+                )
+
+                if mojo_debug_enabled():
+                    skeld_path = discover_mojo_skeld(self._car_root)
+                    skeld_mirror: list[str] = []
+                    if nodes:
+                        for h in hinges:
+                            panel = h.bone_hint
+                            if panel and _is_door_bone(panel):
+                                skeld_mirror.extend(
+                                    skeld_door_mounted_mirror_bones(nodes, panel)
+                                )
+                        skeld_mirror = sorted(set(skeld_mirror))
+                    emit_mojo_bake_debug(
+                        self._car_root,
+                        hinges,
+                        drive_for=drive_for,
+                        quat_for=quat_for,
+                        attach_target=attach_target,
+                        rest_pose=rest_pose,
+                        rest_by_bone=rest_by_bone,
+                        animated=animated,
+                        car_objs=self._car_objs,
+                        arm_obj=arm_obj,
+                        skeld_info={
+                            "path": skeld_path,
+                            "loaded": nodes is not None,
+                            "node_count": len(nodes) if nodes else 0,
+                            "named_count": sum(1 for n in nodes if n.name) if nodes else 0,
+                            "door_mounted_mirror_bones": skeld_mirror,
+                            "mirror_on_armature": [
+                                b for b in skeld_mirror if b in animated
+                            ],
+                        },
+                    )
+            except Exception as exc:
+                print(f"Forza Mojo debug failed ({exc})")
+
+        cfg_note = ""
+        try:
+            from .parsing.mojo_config import load_mojo_config
+
+            cfg = load_mojo_config(self._car_root)
+            if cfg is not None and cfg.autovista_events:
+                cfg_note = f", MojoConfig={'+'.join(cfg.autovista_events)}"
+        except Exception:
+            cfg_note = ""
+        detail = ", ".join(f"{n}x{s}" for s, n in sorted(src_note.items()))
+        oracle_note = ""
+        if oracle_hits > 0:
+            oracle_note = f", POSE_ORACLE={oracle_hits}b"
+        self.report(
+            {"INFO"},
+            f"Mojo v2.25.0: rigged {attached} parts, baked {baked} clip(s) onto '{arm_obj.name}' "
+            f"({detail or 'no samples'}{cfg_note}{oracle_note}). "
+            f"Unmute DOOROPEN_*/DOORCLOSE_* and scrub strip range.",
+        )
+        return {"FINISHED"}
+
+    def _execute_gr2(self, context, rest_by_bone):
+        """FH5 Autovista: gr2dump local 4×4 matrices → bake_action only."""
+        from .parsing.gr2_anim import (
+            doc_has_matrix_tracks,
+            dump_all_animation_gr2,
+            find_skeleton_gr2_file,
+            require_gr2dump_runtime,
+            skeleton_bones_from_gr2,
+        )
+
+        dump_exe, runtime_err = require_gr2dump_runtime()
+        if runtime_err:
+            self.report({"ERROR"}, runtime_err)
+            return {"CANCELLED"}
+
+        skel_path = find_skeleton_gr2_file(self._car_root)
+        skel_bones = (
+            skeleton_bones_from_gr2(skel_path, dump_exe) if skel_path else None
+        )
+        if not skel_bones:
+            self.report(
+                {"ERROR"},
+                "FH5 GR2 matrix bake needs a skeleton .gr2 under this car "
+                "(e.g. scene/*_skeleton.gr2).",
+            )
+            return {"CANCELLED"}
+
+        dumps = dump_all_animation_gr2(self._car_root, dump_exe)
+        matrix_clips = [
+            (action, doc) for action, _path, doc in dumps if doc_has_matrix_tracks(doc)
+        ]
+        if not matrix_clips:
+            self.report(
+                {"ERROR"},
+                "gr2dump produced no matrix tracks. Rebuild tools/gr2dump "
+                "(format gr2dump_v2_matrix) and ensure .NET 8 is installed.",
+            )
+            return {"CANCELLED"}
+
+        return self._execute_gr2_matrix(
+            context, rest_by_bone, skel_bones, matrix_clips
+        )
+
+    def _execute_gr2_matrix(self, context, rest_by_bone, skel_bones, matrix_clips):
+        """Divine-parity bake: gr2dump local 4×4 samples → bake_action (same as .dae)."""
+        parsed = []
+        animated = set()
+        for action_name, doc in matrix_clips:
+            ca = collada_anim_from_gr2_doc(doc, skel_bones)
+            parsed.append((action_name, ca))
+            for bn in rest_by_bone:
+                cid = ca.resolve(bn)
+                if cid is not None and _affected(ca, cid):
+                    animated.add(bn)
+
+        if self.only_default_parts:
+            animated = {
+                b
+                for b in animated
+                if not any(tok in b.lower() for tok in self._SKIP_TOKENS)
+            }
+        if not animated:
+            self.report(
+                {"ERROR"},
+                "No GR2 matrix tracks matched this car's tagged parts.",
+            )
+            return {"CANCELLED"}
+
+        self._remove_existing_rig(self._car_objs)
+        parent_map = compute_parent_map(parsed[0][1], animated) if parsed else {}
+        car_name = os.path.basename(os.path.normpath(self._car_root))
+        arm_obj = build_rig(
+            context, f"{car_name}_anim", sorted(animated), rest_by_bone, parent_map
+        )
+        context.view_layer.update()
+        rest_pose = read_rest_pose(arm_obj)
+        attached = attach_objects(arm_obj, self._car_objs, animated, rest_pose)
+
+        baked = 0
+        span_end = context.scene.frame_start
+        for name, ca in parsed:
+            action, info = bake_action(
+                context,
+                arm_obj,
+                ca,
+                animated,
+                rest_by_bone,
+                rest_pose,
+                parent_map,
+                name,
+            )
+            if action is not None:
+                baked += 1
+                if isinstance(info, int):
+                    span_end = max(span_end, info)
+
+        if span_end > context.scene.frame_end:
+            context.scene.frame_end = span_end
+        for pb in arm_obj.pose.bones:
+            pb.matrix_basis = Matrix.Identity(4)
+        context.view_layer.update()
+        try:
+            bpy.app.timers.register(
+                functools.partial(_deferred_rebind, arm_obj.name), first_interval=0.0
+            )
+        except (RuntimeError, ValueError, TypeError):
+            rebind_strip_slots(arm_obj)
+
+        self.report(
+            {"INFO"},
+            f"GR2 v2.25.0: rigged {attached} parts, baked {baked} matrix clip(s) onto "
+            f"'{arm_obj.name}' (FH5 matrix). Unmute DOOROPEN_* and scrub.",
+        )
+        return {"FINISHED"}
+
 
     def execute(self, context):
         if not getattr(self, "_car_root", None):
@@ -755,10 +1697,6 @@ class IMPORT_SCENE_OT_forza_animations(Operator, ImportHelper):
                 return {"CANCELLED"}
             self._car_root, self._car_objs = resolved
 
-        dae_list, tmpdir = self._collect_dae(context)
-        if dae_list is None:
-            return {"CANCELLED"}
-
         # Exact rest matrices captured at import time (our Blender space).
         rest_by_bone = {}
         for o in self._car_objs:
@@ -766,6 +1704,19 @@ class IMPORT_SCENE_OT_forza_animations(Operator, ImportHelper):
             rest = o.get(PROP_BONE_REST)
             if bn and rest and bn not in rest_by_bone:
                 rest_by_bone[bn] = _flat_to_matrix(rest)
+
+        pipeline = detect_anim_pipeline(self._car_root)
+        if pipeline == "fh5_gr2":
+            return self._execute_gr2(context, rest_by_bone)
+        if pipeline == "fh6_mojo":
+            return self._execute_mojo(context, rest_by_bone)
+
+        dae_list, tmpdir = self._collect_dae(context)
+        if dae_list is None:
+            return {"CANCELLED"}
+        if not dae_list:
+            self.report({"ERROR"}, "No animations found for this car.")
+            return {"CANCELLED"}
 
         # Parse every .dae once and find which tagged bones are actually animated.
         parsed = []
