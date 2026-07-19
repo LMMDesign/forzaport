@@ -9617,6 +9617,9 @@ root_boneGlassLF
 root_boneHeadlightL
 root_boneheadlightL
 root_boneHeadLightL
+root_boneHeadlightR
+root_boneheadlightR
+root_boneHeadLightR
 root_boneHeadlightWiper
 root_bonehood
 root_boneHood

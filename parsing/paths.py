@@ -26,6 +26,46 @@ def find_media_root(root: str) -> str | None:
     return None
 
 
+def media_root_from_tires_dir(tires_dir: str | None) -> str | None:
+    """Derive ``.../media`` from ``.../media/cars/_library/scene/tires``."""
+    if not tires_dir or not os.path.isdir(tires_dir):
+        return None
+    cur = os.path.abspath(tires_dir)
+    # .../cars/_library/scene/tires → walk up to the folder that contains cars/
+    for _ in range(8):
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        if os.path.isdir(os.path.join(parent, "cars")) or os.path.isdir(
+            os.path.join(parent, "Cars")
+        ):
+            return parent
+        # parent may already be media when tires_dir was cars/_library/...
+        media = find_media_root(parent)
+        if media:
+            return media
+        cur = parent
+    return find_media_root(tires_dir)
+
+
+def media_has_car_library(media: str | None) -> bool:
+    """True when media exposes cars/_library (extracted or Materials.zip)."""
+    if not media or not os.path.isdir(media):
+        return False
+    for cars in (
+        os.path.join(media, "cars"),
+        os.path.join(media, "Cars"),
+    ):
+        lib = os.path.join(cars, "_library")
+        if os.path.isdir(lib):
+            return True
+        if os.path.isfile(os.path.join(lib, "Materials.zip")):
+            return True
+        if os.path.isfile(os.path.join(cars, "_library", "Materials.zip")):
+            return True
+    return False
+
+
 def detect_game_key(*paths: str | None) -> str:
     """Classify a path as ``fh5`` / ``fh6`` / ``fm`` / ``unknown`` from folder names."""
     text = " ".join(
@@ -296,13 +336,47 @@ class GamePathResolver:
                 return z
             return disk
 
-        # Shared library textures
+        # Shared library shaders (GAME:\Media\_library\shaders or cars\_library\shaders).
+        # FH5 often stores these as per-shader / car zips under cars/_library/shaders.
+        smarker = "\\_library\\shaders"
+        sidx = low.find(smarker)
+        if sidx != -1:
+            suffix = rest[sidx + len(smarker):].replace("/", "\\")
+            for base in (
+                os.path.join(self.root, "_library", "shaders"),
+                os.path.join(self.root, "cars", "_library", "shaders"),
+                os.path.join(self.root, "Cars", "_library", "shaders"),
+                os.path.join(self.root, "Media", "_library", "shaders"),
+                os.path.join(self.root, "media", "_library", "shaders"),
+                os.path.join(self.root, "Media", "cars", "_library", "shaders"),
+                os.path.join(self.root, "media", "cars", "_library", "shaders"),
+            ):
+                cand = base + suffix
+                if os.path.isfile(cand):
+                    return cand
+            z = self._zip_resolve(path)
+            if z:
+                return z
+            z = self._zip_resolve(r"GAME:\Media\cars\_library\shaders" + suffix)
+            if z:
+                return z
+            z = self._zip_resolve(r"GAME:\Media\Cars\_library\shaders" + suffix)
+            if z:
+                return z
+            z = self._zip_resolve(r"GAME:\Media\_library\shaders" + suffix)
+            if z:
+                return z
+            return os.path.join(self.root, "cars", "_library", "shaders") + suffix
+
+        # Shared library textures (GAME:\Media\cars\_library\textures or GAME:\Media\_library\...)
         tlib = "\\_library\\textures"
         tidx = low.find(tlib)
         if tidx != -1:
             suffix = rest[tidx + len(tlib):].replace("/", "\\")
             for base in (
                 os.path.join(self.root, "_library", "textures"),
+                os.path.join(self.root, "cars", "_library", "textures"),
+                os.path.join(self.root, "Cars", "_library", "textures"),
                 os.path.join(self.root, "Media", "_library", "textures"),
                 os.path.join(self.root, "media", "_library", "textures"),
                 os.path.join(self.root, "Media", "cars", "_library", "textures"),
@@ -314,10 +388,14 @@ class GamePathResolver:
             z = self._zip_resolve(path)
             if z:
                 return z
+            # DFPR placeholders often use Game:\Media\_library\... — try cars library zip.
             z = self._zip_resolve(r"GAME:\Media\cars\_library\textures" + suffix)
             if z:
                 return z
-            return os.path.join(self.root, "Media", "_library", "textures") + suffix
+            z = self._zip_resolve(r"GAME:\Media\Cars\_library\textures" + suffix)
+            if z:
+                return z
+            return os.path.join(self.root, "cars", "_library", "textures") + suffix
 
         if self.cars_dir_override:
             marker = "\\media\\cars"

@@ -53,10 +53,23 @@ class ZipAssetStore:
         self._zips[zip_path] = z
         return z
 
-    def _add_members(self, zip_path: str, prefixes: tuple[str, ...]):
+    def _add_members(
+        self,
+        zip_path: str,
+        prefixes: tuple[str, ...],
+        strip_stem: str | None = None,
+    ):
+        """Index zip members under each GAME: prefix.
+
+        Xbox car zips are usually flat (``Scene/...`` and ``Name.carbin`` at root).
+        Some archives wrap contents in a folder named after the car
+        (``Name/Scene/...``). Only that matching stem is stripped — never
+        arbitrary folders like ``Scene``, which would break modelbin lookups.
+        """
         z = self._open_zip(zip_path)
         if z is None:
             return
+        stem_low = strip_stem.lower() if strip_stem else None
         for name in z.namelist():
             if name.endswith("/"):
                 continue
@@ -69,12 +82,42 @@ class ZipAssetStore:
                     low = rel.lower()
                     break
             parts = rel.split("/")
-            # Drop leading car-folder segment when present (FER_F80_25/file.carbin).
-            if len(parts) >= 2 and "." not in parts[0]:
+            # Drop leading Name/ only when it matches the archive stem.
+            if (
+                stem_low
+                and len(parts) >= 2
+                and parts[0].lower() == stem_low
+            ):
                 rel = "/".join(parts[1:])
             rel_os = rel.replace("/", "\\")
             for prefix in prefixes:
                 key = _norm(prefix + rel_os)
+                if key not in self._index:
+                    self._index[key] = (zip_path, name)
+
+    def _index_shaderbin_aliases(self, zip_path: str) -> None:
+        """Index ``*.shaderbin`` members under ``media\\…\\shaders\\{stem}\\…``.
+
+        FH5 packs many shared shaders into car-named zips with members like
+        ``carpaint_standard/carpaint_standard.shaderbin``. Alias those under the
+        shader stem so ``GAME:\\Media\\_library\\shaders\\…`` resolves.
+        """
+        z = self._open_zip(zip_path)
+        if z is None:
+            return
+        for name in z.namelist():
+            if name.endswith("/"):
+                continue
+            base = os.path.basename(name.replace("\\", "/"))
+            if not base.lower().endswith(".shaderbin"):
+                continue
+            stem = base[: -len(".shaderbin")]
+            rel = f"{stem}\\{base}"
+            for prefix in (
+                "media\\cars\\_library\\shaders\\",
+                "media\\_library\\shaders\\",
+            ):
+                key = _norm(prefix + rel)
                 if key not in self._index:
                     self._index[key] = (zip_path, name)
 
@@ -89,7 +132,7 @@ class ZipAssetStore:
             return False
         stem = media_name or os.path.splitext(os.path.basename(zip_path))[0]
         self.build()
-        self._add_members(zip_path, (f"media\\cars\\{stem}\\",))
+        self._add_members(zip_path, (f"media\\cars\\{stem}\\",), strip_stem=stem)
         return True
 
     def build(self):
@@ -114,7 +157,9 @@ class ZipAssetStore:
                     continue
                 stem = entry[:-4]
                 zip_path = os.path.join(cars, entry)
-                self._add_members(zip_path, (f"media\\cars\\{stem}\\",))
+                self._add_members(
+                    zip_path, (f"media\\cars\\{stem}\\",), strip_stem=stem
+                )
         except OSError:
             pass
 
@@ -145,21 +190,49 @@ class ZipAssetStore:
                         )
             except OSError:
                 pass
-            # shaders as per-shader zips under cars/_library/shaders/
-            shaders = os.path.join(lib, "shaders")
-            if os.path.isdir(shaders):
+            # shaders: FH6 per-shader zips, FH5 car-bundled shader zips, Shaders.zip
+            for shaders_name in ("shaders", "Shaders"):
+                shaders = os.path.join(lib, shaders_name)
+                if not os.path.isdir(shaders):
+                    continue
                 try:
                     for entry in os.listdir(shaders):
-                        if not entry.lower().endswith(".zip"):
+                        low = entry.lower()
+                        if not low.endswith(".zip"):
+                            continue
+                        zip_path = os.path.join(shaders, entry)
+                        if low == "shaders.zip":
+                            self._add_members(
+                                zip_path,
+                                (
+                                    "media\\cars\\_library\\shaders\\",
+                                    "media\\_library\\shaders\\",
+                                ),
+                            )
+                            self._index_shaderbin_aliases(zip_path)
                             continue
                         stem = entry[:-4]
-                        zip_path = os.path.join(shaders, entry)
                         self._add_members(
                             zip_path,
                             (f"media\\cars\\_library\\shaders\\{stem}\\",),
+                            strip_stem=stem,
                         )
+                        # FH5: car-named archives hold shared shader folders
+                        # (carpaint_standard/carpaint_standard.shaderbin). Alias them
+                        # under the shader stem so GAME:\Media\_library\shaders\... works.
+                        self._index_shaderbin_aliases(zip_path)
                 except OSError:
                     pass
+            mono = os.path.join(lib, "Shaders.zip")
+            if os.path.isfile(mono):
+                self._add_members(
+                    mono,
+                    (
+                        "media\\cars\\_library\\shaders\\",
+                        "media\\_library\\shaders\\",
+                    ),
+                )
+                self._index_shaderbin_aliases(mono)
             # tire compound zips
             tires = os.path.join(lib, "scene", "tires")
             if os.path.isdir(tires):
@@ -192,6 +265,7 @@ class ZipAssetStore:
             self._add_members(
                 zip_path,
                 (f"media\\cars\\_library\\scene\\tires\\{stem}\\",),
+                strip_stem=stem,
             )
             count += 1
         return count

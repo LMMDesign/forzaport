@@ -10,11 +10,16 @@ import ctypes
 import functools
 import math
 import struct
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
 ACL_ANIMATION_DATA_HASH = 0xCBE977A85A54EB5E
+
+# Generous upper bounds for legitimate FH6 vehicle clips (not tiny arbitrary caps).
+_MAX_ACL_TRACKS = 4096
+_MAX_ACL_SAMPLES = 100_000
+_MAX_ACL_FLOATS = 50_000_000
 
 
 class MojoAclError(RuntimeError):
@@ -33,11 +38,55 @@ def _dll_candidates() -> list[Path]:
 
 _dll = None
 _dll_error: str | None = None
+_dll_has_bulk: bool | None = None
+_bulk_native_calls = 0
+
+
+def acl_bulk_supported() -> bool:
+    """True when the loaded native helper exports ``forza_acl_decompress_all``."""
+    load_acl_dll()
+    return bool(_dll_has_bulk)
+
+
+def _bind_acl_exports(lib) -> bool:
+    """Register ctypes signatures. Returns whether bulk decompress is available."""
+    lib.forza_acl_info.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_int,
+        ctypes.POINTER(ctypes.c_int),
+        ctypes.POINTER(ctypes.c_int),
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.POINTER(ctypes.c_int),
+    ]
+    lib.forza_acl_info.restype = ctypes.c_int
+    lib.forza_acl_decompress_sample.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_int,
+        ctypes.POINTER(ctypes.c_int),
+    ]
+    lib.forza_acl_decompress_sample.restype = ctypes.c_int
+
+    has_bulk = hasattr(lib, "forza_acl_decompress_all")
+    if has_bulk:
+        lib.forza_acl_decompress_all.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.POINTER(ctypes.c_float),
+            ctypes.c_int,
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_int),
+        ]
+        lib.forza_acl_decompress_all.restype = ctypes.c_int
+    return has_bulk
 
 
 def load_acl_dll():
     """Load native ACL 2.1 helper. Returns ctypes CDLL or raises RuntimeError."""
-    global _dll, _dll_error
+    global _dll, _dll_error, _dll_has_bulk
     if _dll is not None:
         return _dll
     if _dll_error is not None:
@@ -48,29 +97,18 @@ def load_acl_dll():
             continue
         try:
             lib = ctypes.CDLL(str(path))
-            lib.forza_acl_info.argtypes = [
-                ctypes.c_void_p,
-                ctypes.c_int,
-                ctypes.POINTER(ctypes.c_int),
-                ctypes.POINTER(ctypes.c_int),
-                ctypes.POINTER(ctypes.c_float),
-                ctypes.POINTER(ctypes.c_float),
-                ctypes.POINTER(ctypes.c_int),
-            ]
-            lib.forza_acl_info.restype = ctypes.c_int
-            lib.forza_acl_decompress_sample.argtypes = [
-                ctypes.c_void_p,
-                ctypes.c_int,
-                ctypes.c_int,
-                ctypes.POINTER(ctypes.c_float),
-                ctypes.c_int,
-                ctypes.POINTER(ctypes.c_int),
-            ]
-            lib.forza_acl_decompress_sample.restype = ctypes.c_int
-            _dll = lib
-            return _dll
         except OSError as exc:
             last = f"{path}: {exc}"
+            continue
+        # Missing required exports must not be swallowed — only bulk is optional.
+        if not hasattr(lib, "forza_acl_info") or not hasattr(
+            lib, "forza_acl_decompress_sample"
+        ):
+            last = f"{path}: missing required ACL exports"
+            continue
+        _dll_has_bulk = _bind_acl_exports(lib)
+        _dll = lib
+        return _dll
     _dll_error = last
     raise RuntimeError(last)
 
@@ -201,9 +239,35 @@ def _quat_angle_deg(q: tuple[float, float, float, float]) -> float:
     return 2.0 * math.degrees(math.acos(qw))
 
 
-def decompress_sample(transform: bytes, sample_index: int = -1) -> list[tuple]:
-    """Return per-track (rotation_xyzw, translation_xyz, scale_xyz)."""
-    lib = load_acl_dll()
+def _validate_acl_dimensions(num_tracks: int, num_samples: int) -> int:
+    """Return total float count or raise RuntimeError on unsafe dimensions."""
+    if num_tracks <= 0 or num_samples <= 0:
+        raise RuntimeError(
+            "ACL bulk decompression requested invalid dimensions: "
+            f"tracks={num_tracks}, samples={num_samples}"
+        )
+    if num_tracks > _MAX_ACL_TRACKS or num_samples > _MAX_ACL_SAMPLES:
+        raise RuntimeError(
+            "ACL bulk decompression requested invalid dimensions: "
+            f"tracks={num_tracks}, samples={num_samples}"
+        )
+    try:
+        floats_needed = num_samples * num_tracks * 12
+    except OverflowError as exc:
+        raise RuntimeError(
+            "ACL bulk decompression requested invalid dimensions: "
+            f"tracks={num_tracks}, samples={num_samples}"
+        ) from exc
+    if floats_needed <= 0 or floats_needed > _MAX_ACL_FLOATS:
+        raise RuntimeError(
+            "ACL bulk decompression requested invalid dimensions: "
+            f"tracks={num_tracks}, samples={num_samples}"
+        )
+    return floats_needed
+
+
+def _acl_info(lib, transform: bytes):
+    """Query track/sample counts once for a compressed buffer."""
     ntracks = ctypes.c_int()
     nsamples = ctypes.c_int()
     rate = ctypes.c_float()
@@ -211,27 +275,85 @@ def decompress_sample(transform: bytes, sample_index: int = -1) -> list[tuple]:
     ver = ctypes.c_int()
     buf = (ctypes.c_uint8 * len(transform)).from_buffer_copy(transform)
     rc = lib.forza_acl_info(
-        buf, len(transform), ctypes.byref(ntracks), ctypes.byref(nsamples),
-        ctypes.byref(rate), ctypes.byref(dur), ctypes.byref(ver),
+        buf,
+        len(transform),
+        ctypes.byref(ntracks),
+        ctypes.byref(nsamples),
+        ctypes.byref(rate),
+        ctypes.byref(dur),
+        ctypes.byref(ver),
     )
     if rc != 0:
         raise RuntimeError(f"forza_acl_info failed ({rc})")
-    nt = int(ntracks.value)
+    return buf, int(ntracks.value), int(nsamples.value)
+
+
+def _decode_pose_buffer(
+    values,
+    *,
+    num_tracks: int,
+    num_samples: int,
+) -> tuple[tuple[tuple, ...], ...]:
+    """Convert native ``sample-major * 12 floats/track`` into Python pose tuples.
+
+    Returns ``all_samples[sample_index][track_index] = (rot_xyzw, tr_xyz, sc_xyz)``.
+    Padding floats at offsets 7 and 11 are discarded.
+    """
+    samples: list[tuple[tuple, ...]] = []
+    for sample_index in range(num_samples):
+        poses: list[tuple] = []
+        sample_base = sample_index * num_tracks * 12
+        for track_index in range(num_tracks):
+            base = sample_base + track_index * 12
+            rot = (
+                float(values[base]),
+                float(values[base + 1]),
+                float(values[base + 2]),
+                float(values[base + 3]),
+            )
+            tr = (
+                float(values[base + 4]),
+                float(values[base + 5]),
+                float(values[base + 6]),
+            )
+            sc = (
+                float(values[base + 8]),
+                float(values[base + 9]),
+                float(values[base + 10]),
+            )
+            poses.append((rot, tr, sc))
+        samples.append(tuple(poses))
+    return tuple(samples)
+
+
+def _decode_single_sample(values, *, num_tracks: int) -> list[tuple]:
+    """Decode one sample (track-major 12-float stride) into the public list form."""
+    decoded = _decode_pose_buffer(values, num_tracks=num_tracks, num_samples=1)
+    return list(decoded[0])
+
+
+def decompress_sample(transform: bytes, sample_index: int = -1) -> list[tuple]:
+    """Return per-track (rotation_xyzw, translation_xyz, scale_xyz)."""
+    lib = load_acl_dll()
+    buf, nt, ns = _acl_info(lib, transform)
+    if nt <= 0 or ns <= 0:
+        raise RuntimeError(
+            "ACL bulk decompression requested invalid dimensions: "
+            f"tracks={nt}, samples={ns}"
+        )
+    if nt > _MAX_ACL_TRACKS:
+        raise RuntimeError(
+            "ACL bulk decompression requested invalid dimensions: "
+            f"tracks={nt}, samples={ns}"
+        )
     out = (ctypes.c_float * (nt * 12))()
     wrote = ctypes.c_int()
     rc = lib.forza_acl_decompress_sample(
-        buf, len(transform), int(sample_index), out, nt * 12, ctypes.byref(wrote),
+        buf, len(transform), int(sample_index), out, nt * 12, ctypes.byref(wrote)
     )
     if rc != 0:
         raise RuntimeError(f"forza_acl_decompress_sample failed ({rc})")
-    poses = []
-    for ti in range(nt):
-        base = ti * 12
-        rot = (float(out[base]), float(out[base + 1]), float(out[base + 2]), float(out[base + 3]))
-        tr = (float(out[base + 4]), float(out[base + 5]), float(out[base + 6]))
-        sc = (float(out[base + 8]), float(out[base + 9]), float(out[base + 10]))
-        poses.append((rot, tr, sc))
-    return poses
+    return _decode_single_sample(out, num_tracks=nt)
 
 
 def clip_endpoint_angles(clip: AclClip) -> tuple[float, float]:
@@ -258,26 +380,65 @@ def clip_endpoint_translation(clip: AclClip) -> tuple[float, float]:
     return _max_t(first), _max_t(last)
 
 
+def _decompress_all_samples_bulk(transform: bytes) -> tuple[tuple[tuple, ...], ...]:
+    """One native call for every sample when ``forza_acl_decompress_all`` exists."""
+    global _bulk_native_calls
+    lib = load_acl_dll()
+    buf, nt, ns = _acl_info(lib, transform)
+    floats_needed = _validate_acl_dimensions(nt, ns)
+    out = (ctypes.c_float * floats_needed)()
+    out_tracks = ctypes.c_int()
+    out_samples = ctypes.c_int()
+    _bulk_native_calls += 1
+    rc = lib.forza_acl_decompress_all(
+        buf,
+        len(transform),
+        out,
+        floats_needed,
+        ctypes.byref(out_tracks),
+        ctypes.byref(out_samples),
+    )
+    if rc != 0:
+        raise RuntimeError(f"forza_acl_decompress_all failed (code {rc})")
+    if int(out_tracks.value) != nt or int(out_samples.value) != ns:
+        raise RuntimeError(
+            "ACL bulk decompression requested invalid dimensions: "
+            f"tracks={out_tracks.value} (expected {nt}), "
+            f"samples={out_samples.value} (expected {ns})"
+        )
+    return _decode_pose_buffer(out, num_tracks=nt, num_samples=ns)
+
+
+def _decompress_all_samples_legacy(transform: bytes) -> tuple[tuple[tuple, ...], ...]:
+    """Compatibility path for older DLLs without bulk export."""
+    lib = load_acl_dll()
+    buf, nt, ns = _acl_info(lib, transform)
+    _validate_acl_dimensions(nt, ns)
+    samples: list[tuple[tuple, ...]] = []
+    out = (ctypes.c_float * (nt * 12))()
+    wrote = ctypes.c_int()
+    for sample_index in range(ns):
+        rc = lib.forza_acl_decompress_sample(
+            buf,
+            len(transform),
+            int(sample_index),
+            out,
+            nt * 12,
+            ctypes.byref(wrote),
+        )
+        if rc != 0:
+            raise RuntimeError(f"forza_acl_decompress_sample failed ({rc})")
+        samples.append(tuple(_decode_single_sample(out, num_tracks=nt)))
+    return tuple(samples)
+
+
 @functools.lru_cache(maxsize=64)
 def decompress_all_samples(transform: bytes) -> tuple[tuple[tuple, ...], ...]:
     """Decode every ACL sample once; cached for duplicate Autovista events."""
-    lib = load_acl_dll()
-    ntracks = ctypes.c_int()
-    nsamples = ctypes.c_int()
-    rate = ctypes.c_float()
-    dur = ctypes.c_float()
-    ver = ctypes.c_int()
-    buf = (ctypes.c_uint8 * len(transform)).from_buffer_copy(transform)
-    rc = lib.forza_acl_info(
-        buf, len(transform), ctypes.byref(ntracks), ctypes.byref(nsamples),
-        ctypes.byref(rate), ctypes.byref(dur), ctypes.byref(ver),
-    )
-    if rc != 0:
-        raise RuntimeError(f"forza_acl_info failed ({rc})")
-    return tuple(
-        tuple(decompress_sample(transform, sample_index))
-        for sample_index in range(int(nsamples.value))
-    )
+    load_acl_dll()
+    if _dll_has_bulk:
+        return _decompress_all_samples_bulk(transform)
+    return _decompress_all_samples_legacy(transform)
 
 
 def open_pose_by_bone(clip: AclClip, *, opening: bool) -> dict[str, tuple]:
@@ -370,6 +531,10 @@ def match_acl_clip(
 def apply_acl_to_drives(drives, bound_bones: list[str], clips: list[AclClip], opening: bool) -> str:
     """Apply matching ACL samples to drives, expanding to all ACL tracks.
 
+    One declared Autovista mechanism event may span separate ACL buffers
+    (shared ``LIGHTSUP`` → ``boneHeadlightL`` + ``boneHeadlightR``).
+    Match and apply clips until every bound bone with an ACL track is filled.
+
     Raises ``MojoAclError`` when the DLL, clip match, or decompress fails.
     Mid decode is not a fallback.
     """
@@ -383,19 +548,6 @@ def apply_acl_to_drives(drives, bound_bones: list[str], clips: list[AclClip], op
     bones = [b for b in bones if b]
     if not bones:
         raise MojoAclError("ACL apply requires bound bone names")
-    clip = match_acl_clip(clips, bones, opening=opening)
-    if clip is None:
-        raise MojoAclError(
-            f"no ACL clip matches bound bones {bones} "
-            f"({'open' if opening else 'close'})"
-        )
-    try:
-        by_bone = open_pose_by_bone(clip, opening=opening)
-        all_samples = decompress_all_samples(clip.transform)
-    except RuntimeError as exc:
-        raise MojoAclError(str(exc)) from exc
-    if not by_bone:
-        raise MojoAclError(f"ACL decompress returned no tracks for bones={bones}")
 
     # Lazy import avoids circular import at module load.
     from .mojo_clipd import BoneDrive
@@ -403,52 +555,77 @@ def apply_acl_to_drives(drives, bound_bones: list[str], clips: list[AclClip], op
     by_name = {getattr(d, "bone", None): d for d in (drives or []) if getattr(d, "bone", None)}
     tag = "acl_open" if opening else "acl_close"
     primary_source = "acl_2.1"
-
+    remaining = set(bones)
     applied = 0
-    # Prefer ACL track order so panel/helpers stay stable for primary selection.
-    ordered_bones = [n for n in clip.bone_names if n and n in by_bone]
-    for bone in ordered_bones:
-        track_index = clip.bone_names.index(bone)
-        q, tr, _sc = by_bone[bone]
-        ang = _quat_angle_deg(q)
-        axis = (0.0, 1.0, 0.0)
-        if ang > 0.5:
-            s = math.sin(math.radians(ang) * 0.5) or 1.0
-            axis = (q[0] / s, q[1] / s, q[2] / s)
-        drv = by_name.get(bone)
-        if drv is None:
-            drv = BoneDrive(
-                bone=bone,
-                amplitude_deg=ang,
-                axis=axis,
-                knots=[],
-                source=primary_source,
-                channel_index=len(drives),
-                axis_from_mid=ang > 0.5,
-                open_quat=q,
-                quat_source=tag,
-                open_loc=tr if max(abs(v) for v in tr) > 1e-7 else None,
+
+    while remaining:
+        clip = match_acl_clip(clips, list(remaining), opening=opening)
+        if clip is None:
+            break
+        have = {n for n in clip.resolved_bones() if n in remaining}
+        if not have:
+            break
+        try:
+            by_bone = open_pose_by_bone(clip, opening=opening)
+            all_samples = decompress_all_samples(clip.transform)
+        except RuntimeError as exc:
+            raise MojoAclError(str(exc)) from exc
+        if not by_bone:
+            raise MojoAclError(f"ACL decompress returned no tracks for bones={sorted(have)}")
+
+        # Prefer first track index for duplicate names (matches list.index).
+        track_index_by_name: dict[str, int] = {}
+        for index, name in enumerate(clip.bone_names):
+            if name is not None:
+                track_index_by_name.setdefault(name, index)
+
+        ordered_bones = [n for n in clip.bone_names if n and n in by_bone and n in have]
+        for bone in ordered_bones:
+            track_index = track_index_by_name[bone]
+            q, tr, _sc = by_bone[bone]
+            ang = _quat_angle_deg(q)
+            axis = (0.0, 1.0, 0.0)
+            if ang > 0.5:
+                s = math.sin(math.radians(ang) * 0.5) or 1.0
+                axis = (q[0] / s, q[1] / s, q[2] / s)
+            drv = by_name.get(bone)
+            if drv is None:
+                drv = BoneDrive(
+                    bone=bone,
+                    amplitude_deg=ang,
+                    axis=axis,
+                    knots=[],
+                    source=primary_source,
+                    channel_index=len(drives),
+                    axis_from_mid=ang > 0.5,
+                    open_quat=q,
+                    quat_source=tag,
+                    open_loc=tr if max(abs(v) for v in tr) > 1e-7 else None,
+                )
+                drives.append(drv)
+                by_name[bone] = drv
+            else:
+                drv.open_quat = q
+                drv.quat_source = tag
+                drv.amplitude_deg = ang
+                drv.axis_from_mid = ang > 0.5
+                drv.axis = axis
+                drv.source = primary_source
+                drv.open_loc = tr if max(abs(v) for v in tr) > 1e-7 else None
+            drv.acl_quats = [sample[track_index][0] for sample in all_samples]
+            drv.acl_locs = [sample[track_index][1] for sample in all_samples]
+            drv.acl_sample_rate = (
+                float(clip.num_samples - 1) / float(clip.duration)
+                if clip.num_samples > 1 and clip.duration > 0.0
+                else 0.0
             )
-            drives.append(drv)
-            by_name[bone] = drv
-        else:
-            drv.open_quat = q
-            drv.quat_source = tag
-            drv.amplitude_deg = ang
-            drv.axis_from_mid = ang > 0.5
-            drv.axis = axis
-            drv.source = primary_source
-            drv.open_loc = tr if max(abs(v) for v in tr) > 1e-7 else None
-        drv.acl_quats = [sample[track_index][0] for sample in all_samples]
-        drv.acl_locs = [sample[track_index][1] for sample in all_samples]
-        drv.acl_sample_rate = (
-            float(clip.num_samples - 1) / float(clip.duration)
-            if clip.num_samples > 1 and clip.duration > 0.0
-            else 0.0
-        )
-        drv.acl_duration = float(clip.duration)
-        applied += 1
+            drv.acl_duration = float(clip.duration)
+            applied += 1
+        remaining -= have
 
     if applied == 0:
-        raise MojoAclError(f"ACL matched but applied 0 tracks for bones={bones}")
+        raise MojoAclError(
+            f"no ACL clip matches bound bones {bones} "
+            f"({'open' if opening else 'close'})"
+        )
     return tag

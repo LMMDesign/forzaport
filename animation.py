@@ -179,13 +179,14 @@ def load_mojo_hinges(car_root, *, respect_mojo_config=True):
         return [], "no Mojo .clipd under this car"
     # One Autovista pack per car in practice; prefer the largest if several exist.
     clip_path = max(clips, key=lambda p: os.path.getsize(p))
+    cfg = load_mojo_config(car_root) if respect_mojo_config else None
     try:
         pack = parse_clipd(clip_path)
         hang_by_bone = {}
         nodes = load_mojo_skeld_nodes(car_root)
         if nodes:
             hang_by_bone = {n.name: n.pos for n in nodes if n.name}
-        hinges = pack.hinge_channels(hang_by_bone=hang_by_bone)
+        hinges = pack.hinge_channels(hang_by_bone=hang_by_bone, config=cfg)
     except MojoAclError as exc:
         return [], f"Mojo ACL required: {exc}"
     except (OSError, ValueError, RuntimeError) as exc:
@@ -193,7 +194,6 @@ def load_mojo_hinges(car_root, *, respect_mojo_config=True):
     if not hinges:
         return [], f"no hinge channels in {os.path.basename(clip_path)}"
     if respect_mojo_config:
-        cfg = load_mojo_config(car_root)
         if cfg is not None:
             before = len(hinges)
             hinges = filter_hinges_by_mojo_config(hinges, cfg)
@@ -1300,7 +1300,11 @@ class IMPORT_SCENE_OT_forza_animations(Operator, ImportHelper):
                 bone_quats = []
                 for drv in panel_mid_drives:
                     bn = drv.bone
-                    if bn not in rest_by_bone and bn in skeld_rests:
+                    # Always prefer .skeld rests for ACL/multi-panel siblings.
+                    # Mesh ``forza_bone_rest`` from part modelbins is often a
+                    # near-identity bind pose (F40 headlights); keeping it for the
+                    # non-hint sibling left only boneHeadlightL on a real pivot.
+                    if bn in skeld_rests:
                         rest_by_bone[bn] = skeld_rests[bn]
                     if bn not in rest_by_bone:
                         continue
@@ -1308,6 +1312,14 @@ class IMPORT_SCENE_OT_forza_animations(Operator, ImportHelper):
                     attach_target[bn] = bn
                     qo = tuple(getattr(drv, "open_quat", (0.0, 0.0, 0.0, 1.0)))
                     bone_quats.append((bn, qo))
+                    # Each sibling panel needs its own root_* in the armature
+                    # (shared LIGHTSUP → L+R; hint root alone is not enough).
+                    if nodes:
+                        sib_root = skeld_panel_root_name(nodes, bn)
+                        if sib_root and sib_root in skeld_rests:
+                            rest_by_bone[sib_root] = skeld_rests[sib_root]
+                            animated.add(sib_root)
+                            attach_target[sib_root] = sib_root
                 for drv in real_mid_drives:
                     bn = drv.bone
                     if any(bn == b for b, _ in bone_quats):
@@ -1568,7 +1580,7 @@ class IMPORT_SCENE_OT_forza_animations(Operator, ImportHelper):
             oracle_note = f", POSE_ORACLE={oracle_hits}b"
         self.report(
             {"INFO"},
-            f"Mojo v2.25.0: rigged {attached} parts, baked {baked} clip(s) onto '{arm_obj.name}' "
+            f"Mojo v2.27.0: rigged {attached} parts, baked {baked} clip(s) onto '{arm_obj.name}' "
             f"({detail or 'no samples'}{cfg_note}{oracle_note}). "
             f"Unmute DOOROPEN_*/DOORCLOSE_* and scrub strip range.",
         )
@@ -1684,7 +1696,7 @@ class IMPORT_SCENE_OT_forza_animations(Operator, ImportHelper):
 
         self.report(
             {"INFO"},
-            f"GR2 v2.25.0: rigged {attached} parts, baked {baked} matrix clip(s) onto "
+            f"GR2 v2.27.0: rigged {attached} parts, baked {baked} matrix clip(s) onto "
             f"'{arm_obj.name}' (FH5 matrix). Unmute DOOROPEN_* and scrub.",
         )
         return {"FINISHED"}

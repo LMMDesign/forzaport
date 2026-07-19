@@ -116,6 +116,9 @@ class Tag:
     MATL = 0x4D41544C
     MTPR = 0x4D545052  # 'MTPR'
     DFPR = 0x44465052
+    TXMP = 0x54584D50  # 'TXMP' texture register map
+    SPMP = 0x53504D50  # 'SPMP' sampler map
+    CBMP = 0x43424D50  # 'CBMP' cbuffer map
 
     TXCB = 0x54584342  # 'TXCB'
 

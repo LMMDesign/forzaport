@@ -24,9 +24,12 @@ EXCLUDED_FILES = {
     "parsing/mojo_bake_debug.py",
     "tools/gr2dump/granny2.dll",
     ".gitignore",
+    # Retired offline research dumps (kept outside the addon tree now; exclude if restored).
+    "data/material_table.json",
+    "data/material_table_fh6.json",
 }
 EXCLUDED_SUFFIXES = {".pyc", ".pdb", ".lib", ".exp", ".ilk", ".obj"}
-EXCLUDED_PARTS = {"__pycache__", ".git", "scripts"}
+EXCLUDED_PARTS = {"__pycache__", ".git", "scripts", "tests"}
 
 
 def bl_info_version() -> str:
@@ -112,6 +115,7 @@ def main() -> int:
             "notes": [
                 "granny2.dll is not bundled; FH5 animation users must supply it.",
                 "Research modules mojo_pose_oracle / mojo_bake_debug are not bundled.",
+                "Retired material_table JSON dumps are not bundled.",
             ],
         }
         zf.writestr(

@@ -56,8 +56,8 @@ class ImportOptions:
     suspension_only: bool = False
     suspension_transform_type: int = 1   # 0=skeleton, 1=carbin, 2=gamedb
     create_spheres: bool = False
-    use_materials: bool = False
-    create_placeholder_materials: bool = True
+    use_materials: bool = True
+    create_placeholder_materials: bool = False
     quadrangulate_mesh: bool = False
     use_db: bool = False
     series: int = 0

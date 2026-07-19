@@ -30,13 +30,26 @@ For FH5 animation import, place a legally obtained `granny2.dll` next to
 lawful Granny-based tool install). Static car import and FH6 Mojo ACL animation
 work without it.
 
-## Material tables
+## Material name hashes
 
-`data/material_table.json` and `data/material_table_fh6.json` are derived lookup
-tables used to rebuild approximate Blender materials. They are not game assets.
+`data/name_hashes.json` is exported from ForzaTech Studio’s `NameHashService`
+(hash → parameter name). Used at import to label MTPR/DFPR parameters. It is
+derived lookup data, not a game asset.
+
+Retired offline material-table dumps (`material_table.json` /
+`material_table_fh6.json`) are local research only and are not shipped or
+loaded by the importer.
+
+## DXC (DirectX Shader Compiler)
+
+Material import disassembles FH6 `*.pcdxil.pso` files with `dxc.exe` to recover
+per-texture UV registers and channel packs. Prefer a copy under
+`_tools/dxc/bin/x64/dxc.exe` in the repo checkout, or set `FORZA_DXC` to the
+full path of `dxc.exe`. Without dxc, textured materials fail closed.
 
 ## Upstream acknowledgements
 
 - Doliman100 — ForzaTech carbin/modelbin research and importers (GPL-3.0)
+- Nenkai / ForzaTech Studio — bundle parsers and NameHashService (MIT core)
 - Norbyte — LSLib
 - nfrechette — Animation Compression Library (ACL)
