@@ -61,6 +61,14 @@ _EVENT_CLIP_TOKENS: dict[str, tuple[str, ...]] = {
     "vent": ("VENTOPEN", "VENTCLOSE"),
 }
 
+# Mechanisms whose MojoConfig name maps directly to a bound skeleton bone.
+# This is a format convention, not a per-car table. It is used only when
+# multiple declared mechanisms intentionally share one AudioEvent leaf.
+_MECHANISM_BONE_TOKENS: dict[str, tuple[str, ...]] = {
+    "headlightl": ("boneheadlightl",),
+    "headlightr": ("boneheadlightr",),
+}
+
 
 @dataclass
 class MojoConfig:
@@ -182,6 +190,60 @@ def clip_event_matches_config(event_path: str, config: MojoConfig | None) -> boo
             if tok.upper() in leaf or tok.upper() in upper:
                 return True
     return False
+
+
+def _event_matches_mechanism(event_path: str, mechanism_key: str) -> bool:
+    """Whether one declared MojoConfig mechanism owns this AV_* event leaf."""
+    upper = (event_path or "").upper()
+    leaf = upper.rsplit("/", 1)[-1]
+    if leaf.startswith("AV_"):
+        leaf = leaf[3:]
+    tokens = _EVENT_CLIP_TOKENS.get(mechanism_key)
+    if tokens is None:
+        key = mechanism_key.upper().replace("_", "")
+        return key in upper.replace("_", "")
+    return any(tok.upper() in leaf for tok in tokens)
+
+
+def expand_shared_event_bones(
+    event_path: str,
+    direct_bones: list[str],
+    bindings,
+    config: MojoConfig | None,
+) -> list[str]:
+    """Resolve all file-bound bones for mechanisms sharing one event leaf.
+
+    MojoConfig is the authoritative mechanism catalog. For each declared
+    mechanism that owns ``event_path``, collect only skeleton names matching its
+    format-level bone token from the clipd binding tables. This handles separate
+    L/R ACL buffers behind shared LIGHTSUP/LIGHTSDOWN without positional guesses.
+    """
+    out = list(dict.fromkeys(b for b in direct_bones if b))
+    if config is None:
+        return out
+
+    declared = [
+        key
+        for key in config.event_keys
+        if key in _MECHANISM_BONE_TOKENS
+        and _event_matches_mechanism(event_path, key)
+    ]
+    if not declared:
+        return out
+
+    wanted = {
+        token
+        for key in declared
+        for token in _MECHANISM_BONE_TOKENS[key]
+    }
+    for binding in bindings or []:
+        for name in getattr(binding, "names", None) or []:
+            if not name:
+                continue
+            normalized = name.lower().replace("_", "")
+            if any(token in normalized for token in wanted) and name not in out:
+                out.append(name)
+    return out
 
 
 def filter_hinges_by_mojo_config(hinges, config: MojoConfig | None):

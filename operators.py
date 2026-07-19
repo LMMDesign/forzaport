@@ -19,7 +19,13 @@ from bpy.props import BoolProperty, EnumProperty, IntProperty, StringProperty
 from bpy.types import Menu, Operator
 from bpy_extras.io_utils import ImportHelper
 
-from .parsing.paths import find_media_root, GamePathResolver
+from .parsing.paths import (
+    find_media_root,
+    find_tires_dir,
+    GamePathResolver,
+    media_has_car_library,
+    resolve_import_game_key,
+)
 from . import animation
 from .options import ImportOptions, LOD_ITEMS, DRAW_ITEMS, SUSP_ITEMS
 from .importer import Importer
@@ -234,99 +240,27 @@ def _select_gamedb(game_path, media_name, explicit_db, extra_dirs=()):
     return (None, readable, last_err)
 
 
-def _resolve_tires_dir(game_path, *, filepath=None, car_root=None):
-    """Locate shared tire compounds (folders or tire_*.zip) for this import's game.
-
-    Order:
-      1. Preference tire library matching the detected game (FH5 / FH6 / FM)
-      2. ``other`` preference entry when game is unknown
-      3. Auto-detect under the car's ``game_path`` (same install / rip)
-      4. Car Library folders that belong to the same game
-      5. Legacy single ``tires_dir`` preference
-    """
-    from .parsing.paths import detect_game_key, find_tires_dir, resolve_import_game_key
-
+def _configured_game_media(*, filepath=None, game_path=None, car_root=None):
+    """Return the explicit per-game Media root selected in addon preferences."""
     prefs = get_prefs()
     game_key = resolve_import_game_key(
         filepath=filepath, game_path=game_path, car_root=car_root
     )
-
-    def _pref_tires_for(keys: set[str]) -> str | None:
-        if not prefs:
-            return None
-        for item in prefs.tires_libraries:
-            if item.game not in keys or not item.path:
-                continue
-            p = bpy.path.abspath(item.path)
-            if os.path.isdir(p):
-                return p
+    if not prefs:
         return None
-
-    if game_key != "unknown":
-        found = _pref_tires_for({game_key})
-        if found:
-            return found
-    else:
-        found = _pref_tires_for({"other"})
-        if found:
-            return found
-
-    # Same Media/Content tree as the car being imported.
-    found = find_tires_dir(game_path)
-    if found:
-        return found
-
-    # Library roots: only search folders that match this game (avoid FH6 tires on FH5).
-    if prefs:
-        exact_roots: list[str] = []
-        soft_roots: list[str] = []
-        for item in prefs.library_roots:
-            path = bpy.path.abspath(item.path)
-            if not path:
-                continue
-            root_key = detect_game_key(path)
-            if game_key != "unknown" and root_key == game_key:
-                exact_roots.append(path)
-            elif game_key == "unknown" or root_key == "unknown":
-                soft_roots.append(path)
-        found = find_tires_dir(*(exact_roots or soft_roots))
-        if found:
-            return found
-
-    # Legacy single path (pre per-game libraries).
-    if prefs and prefs.tires_dir:
-        p = bpy.path.abspath(prefs.tires_dir)
-        if os.path.isdir(p):
-            legacy_key = detect_game_key(p)
-            if game_key == "unknown" or legacy_key in (game_key, "unknown"):
-                return p
-
-    if game_key != "unknown":
-        found = _pref_tires_for({"other"})
-        if found:
-            return found
-
+    accepted = {game_key} if game_key != "unknown" else {"other"}
+    for item in prefs.game_roots:
+        if item.game not in accepted or not item.path:
+            continue
+        media = find_media_root(bpy.path.abspath(item.path))
+        if media:
+            return media
     return None
 
 
-def _resolve_materials_dir(game_path):
-    prefs = get_prefs()
-    if prefs and prefs.materials_dir:
-        p = bpy.path.abspath(prefs.materials_dir)
-        if os.path.isdir(p):
-            return p
-    for cand in (
-        os.path.join(game_path, "_library", "materials"),
-        os.path.join(game_path, "Media", "_library", "materials"),
-        os.path.join(game_path, "media", "_library", "materials"),
-        os.path.join(game_path, "cars", "_library", "materials"),
-        os.path.join(game_path, "Media", "Cars", "_library", "materials"),
-        os.path.join(game_path, "media", "cars", "_library", "materials"),
-        os.path.join(game_path, "materials"),
-    ):
-        if os.path.isdir(cand):
-            return cand
-    return None
+def _resolve_tires_dir(game_media):
+    """Derive tires only from the selected game's Media tree."""
+    return find_tires_dir(game_media)
 
 
 # ---------------------------------------------------------------------------
@@ -367,21 +301,54 @@ def _resolve_car_root(filepath, game_path, media_name, car_zip_path=None):
     return parent
 
 
+def _resolve_game_media(filepath, source_path, car_root=None):
+    """Use source Media when complete, otherwise the explicit matching game setting."""
+    source_media = find_media_root(source_path)
+    if media_has_car_library(source_media):
+        return source_media
+    configured = _configured_game_media(
+        filepath=filepath, game_path=source_path, car_root=car_root
+    )
+    if configured:
+        print(f"Forza: using configured game Media: {configured}")
+        return configured
+    return None
+
+
 def _import_carbin(filepath, *, use_db, db_path, level_of_detail, draw_group,
                    suspension_transform_type, use_materials, quadrangulate_mesh,
-                   hide_decal_transparent_pass, create_placeholder_materials=True):
+                   hide_decal_transparent_pass, create_placeholder_materials=False):
     game_path, media_name, cars_override, car_zip = _resolve_paths(filepath)
     car_root = _resolve_car_root(filepath, game_path, media_name, car_zip_path=car_zip)
+    # Shared assets always come from one explicit game Media root.
+    media_path = _resolve_game_media(filepath, game_path, car_root=car_root)
+    if use_materials and not media_path:
+        game_key = resolve_import_game_key(
+            filepath=filepath, game_path=game_path, car_root=car_root
+        )
+        raise RuntimeError(
+            f"No game install folder is configured for {game_key.upper()}. "
+            "Set it under Preferences > Add-ons > Import Forza Car > Game Installations. "
+            "Choose the game install folder (the one that contains Content). "
+            "Content or Content\\media also work — the folder must resolve to Content\\media\\cars."
+        )
+    if media_path and os.path.normcase(media_path) != os.path.normcase(game_path):
+        # Keep resolving this car from its own folder/zip when Media is elsewhere.
+        if cars_override is None and not car_zip:
+            car_folder = os.path.dirname(os.path.abspath(filepath))
+            if filepath.lower().endswith(".carbin"):
+                cars_override = car_folder
+            elif os.path.isdir(car_folder):
+                cars_override = car_folder
+        game_path = media_path
     o = ImportOptions(
         game_path=game_path,
         media_name=media_name,
         cars_dir_override=cars_override,
         car_zip_path=car_zip,
         car_root_dir=car_root,
-        tires_dir_override=_resolve_tires_dir(
-            game_path, filepath=filepath, car_root=car_root
-        ),
-        materials_dir_override=_resolve_materials_dir(game_path),
+        tires_dir_override=_resolve_tires_dir(game_path),
+        materials_dir_override=None,
         db_path=db_path or "",
         use_db=use_db,
         car_body_id=None,
@@ -420,7 +387,7 @@ def _build_animations_for(op, new_objects):
 
 def _guarded_import(op, filepath, *, use_db, db_path, level_of_detail, draw_group,
                     suspension_transform_type, use_materials, quadrangulate_mesh,
-                    hide_decal_transparent_pass, create_placeholder_materials=True,
+                    hide_decal_transparent_pass, create_placeholder_materials=False,
                     import_animations=False):
     game_path, media_name, _, car_zip = _resolve_paths(filepath)
     if not game_path:
@@ -442,13 +409,17 @@ def _guarded_import(op, filepath, *, use_db, db_path, level_of_detail, draw_grou
             op.report({"ERROR"}, f"GameDB Path does not exist: {explicit}")
             return {"CANCELLED"}
 
+        # GameDB must be a decrypted SQLite .slt. The live game Media tree only has
+        # encrypted gamedbRC.slt — do not search Game Installations for it.
+        # Prefer Preferences > GameDB Folder / Path; also scan near the car folder.
         resolved_db, readable, err = _select_gamedb(game_path, media_name, explicit, extra_dirs)
         if not resolved_db:
             if readable == 0:
                 detail = f" Last error: {err}" if err else ""
                 op.report({"ERROR"},
-                          "Use GameDB is enabled but no readable GameDB .slt was found near "
-                          "the rip. Set a GameDB path." + detail)
+                          "Use GameDB is enabled but no readable (decrypted) GameDB .slt was found. "
+                          "Set Preferences > GameDB Folder / Path, or disable Use GameDB."
+                          + detail)
                 return {"CANCELLED"}
             bpy.ops.import_scene.forza_carbin_db_fallback(
                 "INVOKE_DEFAULT",
@@ -515,17 +486,17 @@ class IMPORT_SCENE_OT_forza_carbin(Operator, ImportHelper):
     )
     db_path: StringProperty(
         name="GameDB Path",
-        description="Force a specific GameDB .slt. Leave empty to auto-detect near the rip",
+        description="Force a specific decrypted GameDB .slt. Leave empty to auto-detect "
+                    "from Preferences > GameDB Folder (or near the car)",
         subtype="FILE_PATH",
         default="",
     )
     use_materials: BoolProperty(name="Import Materials", default=True)
     create_placeholder_materials: BoolProperty(
         name="Placeholder Materials",
-        description="Give every mesh a material slot named after the original Forza material "
-                    "(shared across meshes) even when the material can't be built. Lets shading "
-                    "start without figuring out which material goes where",
-        default=True,
+        description="Deprecated: unresolved materials always receive the shared "
+                    "FORZAPORT_UNRESOLVED_MATERIAL diagnostic slot (never left empty)",
+        default=False,
     )
     quadrangulate_mesh: BoolProperty(name="Quadrangulate", default=False)
     hide_decal_transparent_pass: BoolProperty(name="Hide Transparent Decals", default=False)
@@ -585,6 +556,7 @@ class IMPORT_SCENE_OT_forza_carbin_quick(Operator):
         if prefs is None:
             self.report({"ERROR"}, "Addon preferences unavailable.")
             return {"CANCELLED"}
+        self.report({"INFO"}, "Importing Forza car… (status bar progress; System Console for DXIL details)")
         return _guarded_import(
             self, self.filepath,
             use_db=prefs.use_db,
@@ -612,8 +584,8 @@ class IMPORT_SCENE_OT_forza_carbin_db_fallback(Operator):
     searched: IntProperty(default=0, options={"HIDDEN"})
     level_of_detail: StringProperty(default="1", options={"HIDDEN"})
     draw_group: StringProperty(default="1", options={"HIDDEN"})
-    use_materials: BoolProperty(default=False, options={"HIDDEN"})
-    create_placeholder_materials: BoolProperty(default=True, options={"HIDDEN"})
+    use_materials: BoolProperty(default=True, options={"HIDDEN"})
+    create_placeholder_materials: BoolProperty(default=False, options={"HIDDEN"})
     quadrangulate_mesh: BoolProperty(default=False, options={"HIDDEN"})
     hide_decal_transparent_pass: BoolProperty(default=False, options={"HIDDEN"})
     import_animations: BoolProperty(default=False, options={"HIDDEN"})

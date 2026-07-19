@@ -46,18 +46,17 @@ Either:
 - **File → Import → Forza Car** and pick a car from the list, or  
 - **File → Import → Forza Car (.carbin/.zip)…** and browse to a specific `.zip` or `.carbin`
 
-### Materials, tires, and shared library (recommended)
+### Materials, tires, and shared library
 
-Full paint / tires need the shared `_library` next to the cars (same place as in the game):
+In **Game Installations**, select each game's **install folder** once — the folder
+that contains `Content` (for example `…\Forza Horizon 5` or `…\Forza Horizon 6`).
+`Content` or `Content\media` are also accepted. The path is stored as you picked it;
+the addon resolves Media at import time and loads shared resources from:
 
-`…\Content\media\cars\_library\` (`Materials.zip`, `Textures.zip`, tire zips, shaders, …)
+`…\Content\media\cars\_library\` (`Materials.zip`, texture zips, tire zips, shaders, …)
 
-Easiest options:
-
-- Copy `_library` into your cars folder as `…\cars\_library\`, **or**
-- Add the game’s `Content\media` folder as a library root (read-only is fine), **or**
-- Add per-game **Tire Libraries** in preferences (FH5 / FH6 / Motorsport each get their own tires folder); import picks the matching game from the car path or Mojo vs GR2 media
-- Set **Materials Folder** if you keep materials elsewhere
+**Car Library Folders** remain separate: those are only the copied car `.zip` files or
+extracted car folders shown in the quick-import menu.
 
 ### GameDB (optional, better wheels)
 
@@ -76,11 +75,31 @@ Easiest options:
 | Setting | Purpose |
 |--------|---------|
 | **Car Library Folders** | Your folder(s) of copied car `.zip` / extracted cars (quick-import menus) |
+| **Game Installations** | One install folder per game (contains `Content`); materials, textures, shaders, tires, and other shared files are derived from its Media tree |
 | **GameDB Folder** | Folder of decrypted `.slt` databases |
-| **Tire Libraries** | Per-game tire folders (`tire_*.zip` or extracted). Import selects FH5 / FH6 / Motorsport from the car path or Autovista media |
-| **Materials Folder** | Optional override if shared materials are not next to the cars |
 | **Import Animations** | Bake Autovista clips after car import |
 | Default LOD / draw group / wheels / materials | Used by library quick-import |
+
+## Materials (clean v3, FH6 only)
+
+Materials are built **directly from game data** (fail closed):
+
+1. Parse MatI → parent materialbin/shaderbin (Local vs Instance params, TXMP maps)
+2. Resolve parameter identity via `data/name_hashes.json` (FTS NameHashService)
+3. Support only exact FH6 TXMP slots: `BaseColorAlpha`, `Alpha`, `Normal` variants, and `RoughMetalAO`
+4. Disassemble `*CarLightScenario.pcdxil.pso` with **dxc** for UV, sampler, and tiling links.
+   Proven rewrite rule: `UVChoice_OnCh1_OffCh2` → `TEXCOORD0` if true, `TEXCOORD1` if false
+   (see `MATERIAL_BOUNDARY.md` / `materials.capabilities`); production still has residual
+   multi-UV shortcuts until UV resolution v2 lands.
+5. Build a fresh minimal graph: Base Color, external Alpha, Normal, then R/G/B Roughness/Metallic/AO
+
+There is no legacy material fallback and no shared FH5/FM translation. Unsupported games,
+ambiguous UV expressions, and unknown material capabilities remain unresolved until their
+game files have been decoded. External `Alpha` is an R-channel mask; when its lighting PSO
+does not sample the slot, it inherits the proven `BaseColorAlpha` UV from the same material
+schema. Alpha is rendered through an explicit Transparent/Principled surface mix.
+
+Requires `dxc` (see `THIRD_PARTY.md` / `FORZA_DXC`).
 
 ## Caches (portable)
 
@@ -89,6 +108,7 @@ Car `.zip` files can stay zipped — the addon extracts only what each import ne
 | Cache | Location |
 |-------|----------|
 | Zip extracts | `~/.cache/forza_import/zipfs` (`%USERPROFILE%\.cache\...` on Windows) |
+| DXIL binding memo | `~/.cache/forza_import/zipfs/shader_bindings` |
 | DDS staging for textures | `%TEMP%\forza_import_dds` |
 
 - Zip extracts auto-trim to **2 GiB** (oldest unused files first).
@@ -99,7 +119,7 @@ Car `.zip` files can stay zipped — the addon extracts only what each import ne
 
 | Variable | Effect |
 |----------|--------|
-| `FORZA_TABLE_PATH` | Override path to a custom `material_table.json` |
+| `FORZA_DXC` | Full path to `dxc.exe` for material DXIL binding extraction |
 | `FORZA_ADDON_DEV=1` | Enable research-only hot reload, Mojo diagnostics, and pose oracle |
 
 Normal addon use does not load or run the research hooks. With development mode enabled, `FORZA_MOJO_DEBUG=1` and `FORZA_MOJO_POSE_ORACLE` become available for controlled investigation. FH6 Mojo always requires ACL 2.1.
@@ -120,5 +140,6 @@ GNU GPL v3 — see `LICENSE`. Upstream parsing/import foundations: Doliman100 Fo
 ## Credits
 
 - Doliman100 — original ForzaTech carbin/modelbin research and importers
+- Nenkai / ForzaTech Studio — NameHashService and bundle research
 - Community GameDB dumps / decryption tools (not bundled)
 - nfrechette ACL / Norbyte LSLib — see `THIRD_PARTY.md`

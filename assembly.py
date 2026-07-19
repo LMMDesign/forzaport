@@ -35,15 +35,31 @@ def is_root_carbin_bone(bone_name):
     return n in ("root", "<root>")
 
 
+def _find_bone_index_by_name(skeleton, bone_name):
+    if skeleton is None or not bone_name:
+        return None
+    want = str(bone_name).strip().lower()
+    if not want:
+        return None
+    for i, b in enumerate(skeleton.bones):
+        if (b.name or "").strip().lower() == want:
+            return i
+    return None
+
+
 def _find_bone_index(skeleton, bone_name, bone_index):
+    """Name match first; numeric index only when name is missing/empty."""
+    by_name = _find_bone_index_by_name(skeleton, bone_name)
+    if by_name is not None:
+        return by_name
+    if bone_name and str(bone_name).strip():
+        # Named carbin bones must not fall through to a part-skeleton index —
+        # controlArmLF_a.modelbin reuses short local indices that collide with
+        # unrelated names like boneWingPivot (F80 suspension → wing attach bug).
+        return None
     if skeleton is None:
         return None
     bones = skeleton.bones
-    if bone_name:
-        want = str(bone_name).strip().lower()
-        for i, b in enumerate(bones):
-            if (b.name or "").strip().lower() == want:
-                return i
     if bone_index is not None and 0 <= int(bone_index) < len(bones):
         return int(bone_index)
     return None
@@ -58,8 +74,13 @@ def skeleton_bone_world(skeleton, bone_name=None, bone_index=-1):
 
 
 def resolve_carbin_bone_world(part_skeleton, scene_skeleton, bone_name, bone_index):
-    """Carbin bone world: part modelbin skeleton first, then scene ``_skeleton`` (engine attach)."""
-    idx = _find_bone_index(part_skeleton, bone_name, bone_index)
+    """Carbin bone world: part modelbin skeleton first, then scene ``_skeleton``.
+
+    Carbin ``bone_index`` indexes the **scene** skeleton. Part modelbins often
+    have tiny local skeletons with recycled names — never apply the carbin index
+    to the part skeleton when a bone name is present.
+    """
+    idx = _find_bone_index_by_name(part_skeleton, bone_name)
     if idx is not None:
         return part_skeleton.bones[idx].transform, part_skeleton.bones[idx].name
     idx = _find_bone_index(scene_skeleton, bone_name, bone_index)

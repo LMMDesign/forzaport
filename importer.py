@@ -6,19 +6,24 @@ Blender meshes (geometry layer) and materials (data-driven materials layer) -> p
 the nested collection hierarchy. All option inputs come from a single ImportOptions.
 """
 
-import hashlib
 import os
 import pathlib
 import sqlite3
 from contextlib import closing
 
 from .parsing.binary import BinaryStream
-from .parsing.paths import GamePathResolver, resolve_tire_model_name, tire_modelbin_game_path
+from .parsing.paths import (
+    GamePathResolver,
+    resolve_tire_model_name,
+    tire_modelbin_game_path,
+    find_media_root,
+    resolve_import_game_key,
+)
 from .parsing.carbin import CarScene, ParseContext, Part, SharedCarModel, Upgrade
 from .geometry import Modelbin, build_mesh_object
-from .materials.builder import MaterialBuilder
-from .materials.material_table import material_instance_key
-from .materials import nodes
+from .materials.translate import translator_for
+from .materials.instance_key import material_instance_key
+from .materials import nodes_v3 as nodes
 from .materials.manufacturer_colors import (
     find_manufacturer_colors,
     load_manufacturer_colors_json,
@@ -32,6 +37,8 @@ from .contract import (
     PROP_CARBIN_BONE,
     PROP_CARBIN_BONE_INDEX,
     PROP_CAR_ROOT,
+    PROP_MATERIAL_DIAG_KEY,
+    PROP_MATERIAL_DIAG_STATUS,
     PROP_MESH_NAME,
     PROP_MODEL_PATH,
     PROP_RIGID_BONE,
@@ -53,10 +60,79 @@ class Importer:
         self.built_materials = {}    # material name -> bpy material
         self.material_specs = {}     # material name -> MaterialSpec (or None)
         self.root_collection = None
-        self._builder = MaterialBuilder()
+        media = find_media_root(options.game_path) or options.game_path
+        self.game_key = resolve_import_game_key(
+            filepath=getattr(options, "filepath", None),
+            game_path=options.game_path,
+            car_root=getattr(options, "car_root_dir", None),
+        )
+        if self.game_key == "unknown":
+            raise RuntimeError(
+                "Cannot determine game (FH5/FH6/FM) for materials. "
+                "Set Preferences > Game Installations for this title, or import from a "
+                "path that identifies the game."
+            )
+        self._builder = translator_for(self.game_key, media_root=media)
+        self._material_failures = []
+        self._progress = None
         self.media_name = options.media_name
         self._scene_skeleton_mb = None
+        self.material_report = None
         self._load_stock_paint()
+
+    def _progress_begin(self, total, message="Importing Forza car"):
+        self._progress = {"i": 0, "total": max(1, int(total)), "message": message}
+        try:
+            import bpy
+            wm = bpy.context.window_manager
+            wm.progress_begin(0, self._progress["total"])
+        except Exception:
+            pass
+        print(f"Forza: {message} (0/{self._progress['total']})", flush=True)
+
+    def _progress_step(self, label=""):
+        if not self._progress:
+            return
+        self._progress["i"] += 1
+        i = self._progress["i"]
+        total = self._progress["total"]
+        try:
+            import bpy
+            bpy.context.window_manager.progress_update(min(i, total))
+            # Force a UI refresh during blocking execute so the status bar moves.
+            try:
+                bpy.ops.wm.redraw_timer(type="DRAW_WIN_SWAP", iterations=1)
+            except Exception:
+                pass
+        except Exception:
+            pass
+        if label and (i == 1 or i == total or i % 3 == 0):
+            print(f"Forza: {label} ({i}/{total})", flush=True)
+
+    def _progress_end(self):
+        if not self._progress:
+            return
+        try:
+            import bpy
+            bpy.context.window_manager.progress_end()
+        except Exception:
+            pass
+        print(
+            f"Forza: {self._progress['message']} done "
+            f"({self._progress['i']}/{self._progress['total']})",
+            flush=True,
+        )
+        self._progress = None
+
+    def _count_loadable_models(self, scene):
+        o = self.o
+        n = 0
+        for part in [*scene.parts, *scene.upgradable_parts]:
+            if o.suspension_only and part.type not in (44, 4, 2, 8):
+                continue
+            for model in part.models:
+                n += 1
+        return n
 
     def _load_stock_paint(self):
         """Optional ManufacturerColors.json (CLI dump) stock paint for carpaint without instance color."""
@@ -83,6 +159,19 @@ class Importer:
         import bpy
         self._check_blender_version(bpy)
         o = self.o
+        self._material_parse_failures = []
+        self._init_material_report(bpy)
+
+        if o.use_materials:
+            media = find_media_root(o.game_path) or o.game_path
+            from .parsing.paths import media_has_car_library
+            if not media_has_car_library(media):
+                print(
+                    "Forza: WARNING — game_path has no cars\\_library "
+                    f"({media!r}). Materials cannot be built without the shared library. "
+                    "Set Preferences > Game Installations to the game install folder "
+                    "(the folder that contains Content; Content or Content\\media also work)."
+                )
 
         if o.use_db:
             self._query_gamedb()
@@ -148,6 +237,13 @@ class Importer:
                 print("Warning: no TireModelName — rubber tires will not be synthesized.")
 
         self._load_models(scene, skeleton_modelbin)
+        if self._material_parse_failures:
+            n = len(self._material_parse_failures)
+            sample = self._material_parse_failures[0][1]
+            print(
+                f"Forza: {n} material(s) failed to parse (parent materialbin/shader missing). "
+                f"First: {sample}. Meshes get magenta placeholders until Media cars\\_library resolves."
+            )
 
         car_bodies = {}
         for upgradable_part in scene.upgradable_parts:
@@ -164,16 +260,62 @@ class Importer:
         if scene.part_wheels is not None:
             assembly.init_wheel_brake_transforms(scene, o)
 
-        self._build_scene(scene, scene_skeleton_mb)
+        try:
+            self._build_scene(scene, scene_skeleton_mb)
+        finally:
+            self._progress_end()
 
         if self.root_collection is not None:
             self.root_collection.sort()
+            self._finalize_material_report()
         else:
             print("Warning: no meshes were imported (check LOD/draw group filters and file paths).")
+
+    def _init_material_report(self, bpy):
+        import importlib
+
+        from .materials.diagnostics import ImportMaterialReport
+
+        bl_ver = ".".join(str(x) for x in bpy.app.version)
+        forza_ver = "unknown"
+        try:
+            pkg = importlib.import_module(__package__)
+            forza_ver = ".".join(str(x) for x in pkg.bl_info["version"])
+        except Exception:
+            pass
+        self.material_report = ImportMaterialReport(
+            forza_version=forza_ver,
+            blender_version=bl_ver,
+            game_key=self.game_key,
+            pipeline="clean_v3",
+            car_id=self.media_name,
+        )
+
+    def _finalize_material_report(self):
+        if self.material_report is None or self.root_collection is None:
+            return
+        from .materials.report_store import store_report_on_collection
+
+        collection = self.root_collection.layer_collection.collection
+        name = store_report_on_collection(collection, self.material_report)
+        summary = self.material_report.summary_counts()
+        print(
+            "Forza material report: "
+            f"encountered={summary['materials_encountered']} "
+            f"supported={summary['fully_supported']} "
+            f"partial={summary['partially_supported']} "
+            f"unresolved={summary['unresolved']} "
+            f"builder_errors={summary['builder_errors']} "
+            f"diagnostic_objects={summary['objects_with_diagnostic_materials']} "
+            f"(text={name})",
+            flush=True,
+        )
 
     # ----------------------------------------------------------- model loading
     def _load_models(self, scene, skeleton_modelbin):
         o = self.o
+        total = self._count_loadable_models(scene) * 2  # load + build phases
+        self._progress_begin(total, f"Importing {self.media_name}")
         for part in [*scene.parts, *scene.upgradable_parts]:
             if o.suspension_only and part.type not in (44, 4, 2, 8):
                 continue
@@ -193,8 +335,10 @@ class Importer:
                         model.upgrade_ids = list(upgrade_ids)
                     model = model.model
                 if o.suspension_only and part.type == 2 and not model.bone_name.startswith("controlArm"):
+                    self._progress_step("skip model")
                     continue
                 if model.draw_groups & o.requested_draw_group == 0:
+                    self._progress_step("skip model")
                     continue
                 mpath_early = (getattr(model, "path", None) or "").lower().replace("\\", "/")
                 # Wing-mirror modelbins often advertise a different LOD mask than
@@ -202,6 +346,7 @@ class Importer:
                 # the whole model on LOD — mesh-tier filter handles duplicates.
                 if "wingmirror" not in mpath_early:
                     if model.levels_of_detail & o.requested_level_of_detail == 0:
+                        self._progress_step("skip model")
                         continue
 
                 p = self.resolver.resolve(model.path)
@@ -210,6 +355,7 @@ class Importer:
                     p = self.resolver.resolve(alt)
                 if not os.path.isfile(p):
                     print(f"Warning: skipping missing model file: {model.path} -> {p}")
+                    self._progress_step("missing model")
                     continue
                 mpath_load = (getattr(model, "path", None) or "").lower().replace("\\", "/")
                 lod_for_deserialize = o.requested_level_of_detail
@@ -223,9 +369,14 @@ class Importer:
                     requested_level_of_detail=lod_for_deserialize,
                     resolver=self.resolver,
                     parse_materials=o.use_materials)
+                fails = getattr(model.modelbin, "_material_parse_failures", None)
+                if fails:
+                    self._material_parse_failures.extend(fails)
 
                 sphere_cb = (lambda t, n: self._add_sphere(t, n)) if o.create_spheres else None
                 assembly.apply_part_assignment(scene, o, part, model, skeleton_modelbin, sphere_cb)
+                leaf = os.path.basename((getattr(model, "path", None) or "").replace("\\", "/"))
+                self._progress_step(f"loaded {leaf}")
 
     def _load_scene_skeleton(self, scene):
         """Parse ``scene/_skeleton.modelbin`` once (carbin layer B + suspension mode 0)."""
@@ -376,6 +527,8 @@ class Importer:
                         obj[PROP_CAR_ROOT] = o.car_root_dir
                     self._assign_material(obj, modelbin, mesh)
                     self._place_object(obj, part, model, upgrade_ids)
+                leaf = os.path.basename((getattr(model, "path", None) or "").replace("\\", "/"))
+                self._progress_step(f"built {leaf}")
 
     # ----------------------------------------------------------- placement
     def _place_object(self, obj, part, model, upgrade_ids):
@@ -417,46 +570,120 @@ class Importer:
 
     # ----------------------------------------------------------- materials
     def _assign_material(self, obj, modelbin, mesh):
-        import bpy
         mid = mesh.material_id
         if not (0 <= mid < len(modelbin.materials)):
             return
         pm = modelbin.materials[mid]
-        name = material_instance_key(pm)
+        name = material_instance_key(pm, game_key=self.game_key)
         if not name:
             return
 
-        if self.o.use_materials and pm.obj is not None:
-            spec = self.material_specs.get(name, "missing")
-            if spec == "missing":
-                try:
-                    spec = self._builder.build(name, pm.obj)
-                except Exception as e:
-                    print(f"Note: material build failed for '{name}': {e!r}")
-                    spec = None
-                self.material_specs[name] = spec
-            if spec is not None and spec.valid:
-                mat = self.built_materials.get(name)
-                graph_v = getattr(nodes, "MATERIAL_GRAPH_VERSION", 0)
-                if mat is None or mat.get("forza_graph_v", 0) != graph_v:
-                    try:
-                        mat = nodes.build_material(spec, self.resolver, self.image_cache)
-                        self.built_materials[name] = mat
-                    except Exception as e:
-                        print(f"Note: material nodes failed for '{name}': {e!r}")
-                        mat = None
-                if mat is not None:
-                    obj.data.materials.append(mat)
-                    return
+        if not (self.o.use_materials and pm.obj is not None):
+            return
 
-        if self.o.create_placeholder_materials:
+        from .materials.diagnose import resolve_with_diagnostics
+        from .materials.diagnostic_material import get_unresolved_material
+        from .materials.diagnostics import (
+            AssignmentOutcome,
+            MaterialStatus,
+            StageOutcome,
+        )
+        from .materials.pipeline_v3 import MaterialTranslateError
+        from .materials.shader_bindings import ShaderBindingError
+
+        cached = self.material_specs.get(name, "missing")
+        if cached == "missing":
+            result = resolve_with_diagnostics(
+                self._builder, name, pm.obj, resolver=self.resolver
+            )
+            diag = result.diagnostic
+            spec = result.spec
+            self.material_specs[name] = spec
+            if self.material_report is not None:
+                self.material_report.upsert(diag)
+            if spec is None or not spec.valid:
+                print(
+                    f"Material unresolved '{name}': "
+                    f"{diag.status.value}: {diag.failure_reason or diag.errors}"
+                )
+                self._material_failures.append(
+                    (name, diag.failure_reason or diag.status.value)
+                )
+        else:
+            spec = cached
+            diag = (
+                self.material_report.entries.get(name)
+                if self.material_report is not None
+                else None
+            )
+
+        mat = None
+        assign_diagnostic = False
+        if spec is not None and spec.valid:
             mat = self.built_materials.get(name)
+            graph_v = getattr(nodes, "MATERIAL_GRAPH_VERSION", 0)
+            if mat is None or mat.get("forza_graph_v", 0) != graph_v:
+                try:
+                    mat = nodes.build_material(spec, self.resolver, self.image_cache)
+                    self.built_materials[name] = mat
+                    if self.material_report is not None and name in self.material_report.entries:
+                        prev = self.material_report.entries[name]
+                        # Construction succeeded; keep PARTIAL if capability was partial.
+                        self.material_report.upsert(
+                            prev.with_construction(outcome=StageOutcome.OK)
+                        )
+                except (MaterialTranslateError, ShaderBindingError, RuntimeError) as e:
+                    print(f"Material unresolved '{name}': node graph: {e}")
+                    self._material_failures.append((name, f"node graph: {e}"))
+                    assign_diagnostic = True
+                    if self.material_report is not None and name in self.material_report.entries:
+                        prev = self.material_report.entries[name]
+                        self.material_report.upsert(
+                            prev.with_construction(
+                                outcome=StageOutcome.FAILED,
+                                status=MaterialStatus.BUILDER_ERROR,
+                                error=str(e),
+                            )
+                        )
+                    mat = None
             if mat is None:
-                mat = bpy.data.materials.new(name)
-                self.built_materials[name] = mat
-                mat.use_nodes = True
-                h = hashlib.md5(name.encode("utf-8")).digest()
-                mat.diffuse_color = (h[0] / 255.0, h[1] / 255.0, h[2] / 255.0, 1.0)
+                assign_diagnostic = True
+        else:
+            assign_diagnostic = True
+
+        if assign_diagnostic:
+            mat = get_unresolved_material()
+            obj[PROP_MATERIAL_DIAG_KEY] = name
+            status_val = (
+                diag.status.value
+                if diag is not None
+                else MaterialStatus.UNRESOLVED_CAPABILITY.value
+            )
+            obj[PROP_MATERIAL_DIAG_STATUS] = status_val
+            if self.material_report is not None:
+                if name not in self.material_report.entries and diag is not None:
+                    self.material_report.upsert(diag)
+                if name in self.material_report.entries:
+                    self.material_report.upsert(
+                        self.material_report.entries[name].with_assignment(
+                            outcome=AssignmentOutcome.ASSIGNED_DIAGNOSTIC,
+                            object_name=obj.name,
+                        )
+                    )
+        else:
+            if PROP_MATERIAL_DIAG_KEY in obj:
+                del obj[PROP_MATERIAL_DIAG_KEY]
+            if PROP_MATERIAL_DIAG_STATUS in obj:
+                del obj[PROP_MATERIAL_DIAG_STATUS]
+            if self.material_report is not None and name in self.material_report.entries:
+                self.material_report.upsert(
+                    self.material_report.entries[name].with_assignment(
+                        outcome=AssignmentOutcome.ASSIGNED_RESOLVED,
+                        object_name=obj.name,
+                    )
+                )
+
+        if mat is not None:
             obj.data.materials.append(mat)
 
     # ----------------------------------------------------------- bone tagging

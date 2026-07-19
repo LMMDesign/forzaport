@@ -1,7 +1,25 @@
-"""Data-driven material pipeline.
+"""Clean FH6 material pipeline (fail closed).
 
-material_table.py loads/looks up data/material_table.json (per-shader, per-paramHash UV +
-channel packing + normal encoding + sampler address + role token + cbuffer defaults, mined
-from the FH5 shader library). builder.py turns a parsed material into a MaterialSpec; nodes.py
-turns a MaterialSpec into a Blender node tree. No fail-first fallback fork.
+Only the v3 Base/Alpha/Normal/RMAO contract is production-active.
+Diagnostics / capability probes are rewrite infrastructure.
 """
+
+from .pipeline_v3 import (
+    CleanMaterialBuilder,
+    MaterialSpec,
+    MaterialTranslateError,
+)
+from .diagnostics import ImportMaterialReport, MaterialStatus
+from .translate import translator_for
+
+MaterialBuilder = CleanMaterialBuilder
+
+__all__ = (
+    "CleanMaterialBuilder",
+    "MaterialBuilder",
+    "MaterialSpec",
+    "MaterialTranslateError",
+    "MaterialStatus",
+    "ImportMaterialReport",
+    "translator_for",
+)

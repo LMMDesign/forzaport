@@ -19,6 +19,11 @@ PROP_CARBIN_BONE_INDEX = "forza_carbin_bone_index"  # CarRenderModel.bone_index 
 PROP_MODEL_PATH = "forza_model_path"           # CarRenderModel.path (modelbin path)
 PROP_MESH_NAME = "forza_mesh_name"             # modelbin mesh name (e.g. mirrorleft)
 
+# Material import diagnostics (per-car report + unresolved slot tagging)
+PROP_MATERIAL_REPORT_TEXT = "forza_material_report_text"  # bpy.data.texts name
+PROP_MATERIAL_DIAG_KEY = "forza_material_diag_key"        # instance key on mesh object
+PROP_MATERIAL_DIAG_STATUS = "forza_material_diag_status"
+
 # --- Forza Y-up (left-handed) -> Blender Z-up (right-handed). Row-major 4x4. ---
 COORD_ROWS = (
     (-1.0, 0.0, 0.0, 0.0),

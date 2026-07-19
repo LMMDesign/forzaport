@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from .parsing.binary import BinaryStream, Bundle, Tag
 from .parsing.model import Model, VertexLayout, ModelBuffer, Mesh
 from .parsing.skeleton import Skeleton
-from .parsing.material import MaterialSystemObject
+from .parsing.material import MaterialParseError, MaterialSystemObject
 
 
 class VertexLayout_Element:
@@ -134,8 +134,20 @@ class Modelbin:
                     mso = MaterialSystemObject()
                     mso.deserialize(blob.stream, resolver)
                     pm.obj = mso
+                except MaterialParseError as e:
+                    print(f"Material parse error '{pm.name}': {e}")
+                    fails = getattr(self, "_material_parse_failures", None)
+                    if fails is None:
+                        self._material_parse_failures = []
+                        fails = self._material_parse_failures
+                    fails.append((pm.name, str(e)))
                 except Exception as e:
-                    print(f"Warning: could not parse material '{pm.name}': {e!r}")
+                    print(f"Material parse error '{pm.name}': {e!r}")
+                    fails = getattr(self, "_material_parse_failures", None)
+                    if fails is None:
+                        self._material_parse_failures = []
+                        fails = self._material_parse_failures
+                    fails.append((pm.name, str(e)))
 
     def process_mesh(self, mesh):
         max_vertex_buffer_length = next(iter(self.vertex_buffers.values())).length

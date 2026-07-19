@@ -25,6 +25,8 @@ tools/gr2dump/granny2.dll
 # Research / development-only modules (local workspace)
 parsing/mojo_pose_oracle.py
 parsing/mojo_bake_debug.py
+data/material_table.json
+data/material_table_fh6.json
 
 # Editor
 .idea/

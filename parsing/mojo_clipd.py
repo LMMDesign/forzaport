@@ -303,13 +303,18 @@ class MojoClipPack:
     bindings: list[BoneBinding]
     acl_clips: list = field(default_factory=list)
 
-    def link_events(self) -> list[ClipEventLink]:
+    def link_events(self, config=None) -> list[ClipEventLink]:
         """Pair each AudioEvent to its clipdef and bone binding by file offset.
 
         Clipdef: nearest record with ``offset < event.offset``.
         Binding: nearest table with ``offset`` in ``[event-2500, event+200]``
         (Autovista wiring sits beside the event string — works for 2–12 event cars
         including Integra Type R where front/rear doors share ``_L``/``_R`` labels).
+
+        MojoConfig may declare multiple mechanisms for one shared event leaf.
+        In that case, expand the link from matching file bindings by mechanism
+        name (for example headlightL + headlightR → LIGHTSUP), never by car or
+        by positional "orphan" guesses.
         """
         out: list[ClipEventLink] = []
         for ev in self.events:
@@ -334,10 +339,22 @@ class MojoClipPack:
                     bone_names=names,
                 )
             )
+        if config is not None:
+            from .mojo_config import expand_shared_event_bones
+
+            for link in out:
+                link.bone_names = expand_shared_event_bones(
+                    link.event.name,
+                    link.bone_names,
+                    self.bindings,
+                    config,
+                )
         return out
 
     def hinge_channels(
-        self, hang_by_bone: dict[str, tuple[float, float, float]] | None = None
+        self,
+        hang_by_bone: dict[str, tuple[float, float, float]] | None = None,
+        config=None,
     ) -> list[HingeChannel]:
         """One NLA-ready track per Autovista event from ACL 2.1 samples.
 
@@ -358,7 +375,7 @@ class MojoClipPack:
             raise MojoAclError(str(exc)) from exc
 
         out: list[HingeChannel] = []
-        for link in self.link_events():
+        for link in self.link_events(config=config):
             d = link.clip
             upper = link.event.name.upper()
             if "OPEN" in upper or "UP" in upper:
@@ -444,7 +461,7 @@ def _is_panel_bone(name: str) -> bool:
         return False
     return any(
         tok in low
-        for tok in ("door", "hood", "trunk", "wing", "roof", "spoiler")
+        for tok in ("door", "hood", "trunk", "wing", "roof", "spoiler", "headlight")
     )
 
 
@@ -510,6 +527,11 @@ def resolve_bone_names(
             names.update(harvest_bone_names_from_binary(str(bin_path)))
         for txt in list(p.glob("*bones*.txt")) + list(p.glob("*/*bones*.txt")):
             names.update(txt.read_text(encoding="utf-8").splitlines())
+    # Autovista Mode A: every ``bone*`` panel has a matching ``root_bone*`` pivot
+    # in ``.skeld``. Catalog harvest often keeps only one side (e.g. HeadlightL
+    # but not HeadlightR) — synthesize the root alias from known bone names.
+    roots = {f"root_{n}" for n in names if n.startswith("bone") and not n.startswith("root_")}
+    names.update(roots)
     return sorted(n for n in names if n and not n.startswith("#"))
 
 

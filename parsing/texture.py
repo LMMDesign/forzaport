@@ -161,19 +161,21 @@ class Texture:
         self.is_durango = False
         self.blob_version = None
         self.rgba_pixels: list[float] | None = None
+        self._pixel_data: bytes | None = None
 
     @staticmethod
-    def from_path(path, resolver):
+    def from_path(path, resolver, *, decode_pixels: bool = False):
+        """Load swatchbin → DDS. Pixel BC decode is opt-in (slow); Blender prefers DDS FILE."""
         p = resolver.resolve(path)
         if p is None or not os.path.isfile(p):
             if p:
                 print(f"Warning: texture not found: {p}")
             return None
         t = Texture(p)
-        t.deserialize()
+        t.deserialize(decode_pixels=decode_pixels)
         return t
 
-    def deserialize(self):
+    def deserialize(self, *, decode_pixels: bool = False):
         s = BinaryStream.from_path(self.path)
         bundle = Bundle()
         bundle.deserialize(s)
@@ -194,18 +196,31 @@ class Texture:
         self.color_profile = header["color_profile"]
 
         pixel_data = bytes(blob.stream.read())
+        self._pixel_data = pixel_data
         self.buffer = _build_dds(header, pixel_data)
 
-        if not self.is_durango:
-            try:
-                rgba = decode_to_rgba8(pixel_data, self.width, self.height, self.encoding)
-                if rgba is not None:
-                    self.rgba_pixels = rgba8_to_float_pixels(rgba)
-            except Exception as e:
-                print(
-                    f"Warning: Python BC decode failed for {os.path.basename(self.path)} "
-                    f"(encoding={self.encoding}): {e!r}; using DDS fallback."
-                )
+        if decode_pixels:
+            self.ensure_rgba_pixels()
+
+    def ensure_rgba_pixels(self) -> bool:
+        """Lazy BC decode — only when DDS FILE load is unavailable."""
+        if self.has_decoded_pixels():
+            return True
+        if self.is_durango or not self._pixel_data:
+            return False
+        try:
+            rgba = decode_to_rgba8(
+                self._pixel_data, self.width, self.height, self.encoding
+            )
+            if rgba is not None:
+                self.rgba_pixels = rgba8_to_float_pixels(rgba)
+                return self.has_decoded_pixels()
+        except Exception as e:
+            print(
+                f"Warning: Python BC decode failed for {os.path.basename(self.path)} "
+                f"(encoding={self.encoding}): {e!r}; using DDS fallback."
+            )
+        return False
 
     def has_decoded_pixels(self) -> bool:
         n = self.width * self.height * 4

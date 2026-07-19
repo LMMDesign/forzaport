@@ -1,6 +1,6 @@
 """Addon preferences + the shared prefs accessor.
 
-Library / GameDB / tires / materials paths and default import options for
+Car libraries / game installations / GameDB and default import options for
 File > Import > Forza Car. All paths are empty by default so any machine works;
 set them in Edit > Preferences > Add-ons > Import Forza Car.
 
@@ -22,25 +22,27 @@ from .parsing.disk_cache import (
     clear_all_caches,
     format_bytes,
 )
-from .parsing.paths import detect_game_key
+from .parsing.paths import (
+    detect_game_key,
+    find_media_root,
+    media_root_from_tires_dir,
+)
 
 # Fixed module id — must match the installed addon folder name.
 ADDON_ID = "io_import_forza_carbin"
 
-TIRES_GAME_ITEMS = (
-    ("fh6", "Forza Horizon 6", "Use when importing FH6 / Horizon 6 cars"),
-    ("fh5", "Forza Horizon 5", "Use when importing FH5 / Horizon 5 cars"),
-    ("fm", "Forza Motorsport", "Use when importing Forza Motorsport cars"),
-    ("other", "Other / Fallback", "Used when the game cannot be detected"),
+GAME_ITEMS = (
+    ("fh6", "Forza Horizon 6", "Forza Horizon 6 install folder (the one that contains Content)"),
+    ("fh5", "Forza Horizon 5", "Forza Horizon 5 install folder (the one that contains Content)"),
+    ("fm", "Forza Motorsport", "Forza Motorsport install folder (the one that contains Content)"),
+    ("other", "Other / Fallback", "Used when the source game cannot be detected"),
 )
 
 # Keys mirrored to disk (survive addon reload).
-# tires_dir kept as legacy single-path fallback (migrated into tires_libraries).
+# Legacy path keys remain readable only so older settings can migrate to game_roots.
 # Unknown keys in older user_settings.json (e.g. lslib_path) are ignored on load.
 _PERSIST_STRINGS = (
     "gamedb_dir",
-    "tires_dir",
-    "materials_dir",
     "db_path",
 )
 
@@ -60,26 +62,64 @@ def _settings_path() -> str:
 def _gather_settings(prefs) -> dict:
     return {
         "library_roots": [item.path for item in prefs.library_roots if item.path],
-        "tires_libraries": [
+        "game_roots": [
             {"game": item.game, "path": item.path}
-            for item in prefs.tires_libraries
+            for item in prefs.game_roots
             if item.path
         ],
         **{key: getattr(prefs, key, "") or "" for key in _PERSIST_STRINGS},
     }
 
 
-def _migrate_legacy_tires_dir(prefs) -> None:
-    """If only the old single tires_dir is set, seed one tires_libraries row."""
-    if any(item.path for item in prefs.tires_libraries):
-        return
-    legacy = (getattr(prefs, "tires_dir", "") or "").strip()
-    if not legacy:
-        return
-    item = prefs.tires_libraries.add()
-    key = detect_game_key(legacy)
-    item.game = key if key != "unknown" else "other"
-    item.path = legacy
+def _add_game_root(prefs, game: str, path: str) -> bool:
+    """Seed one entry from a legacy tires path (stores resolved Media for migration only).
+
+    Manual preference picks keep the raw install/Content/Media path the user chose;
+    Media is resolved at validation and import time via find_media_root().
+    """
+    media = find_media_root(path) or media_root_from_tires_dir(path)
+    if not media:
+        return False
+    media = os.path.normpath(media)
+    key = game if game in {g[0] for g in GAME_ITEMS} else detect_game_key(media)
+    if key == "unknown":
+        key = "other"
+    for item in prefs.game_roots:
+        if item.game == key:
+            return False
+        existing = bpy.path.abspath(item.path) if item.path else ""
+        existing_media = find_media_root(existing) if existing else None
+        if existing_media and os.path.normcase(existing_media) == os.path.normcase(media):
+            return False
+        if existing and os.path.normcase(existing) == os.path.normcase(media):
+            return False
+    item = prefs.game_roots.add()
+    item.game = key
+    item.path = media
+    return True
+
+
+def _migrate_legacy_game_roots(prefs, data=None) -> bool:
+    """Migrate old tire-folder settings to explicit game install roots once."""
+    if any(item.path for item in prefs.game_roots):
+        return False
+    changed = False
+    data = data if isinstance(data, dict) else {}
+    entries = data.get("tires_libraries")
+    if isinstance(entries, list):
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            path = entry.get("path")
+            if isinstance(path, str) and path.strip():
+                changed |= _add_game_root(prefs, entry.get("game", "other"), path)
+    legacy = data.get("tires_dir") or getattr(prefs, "tires_dir", "")
+    if isinstance(legacy, str) and legacy.strip():
+        key = detect_game_key(legacy)
+        changed |= _add_game_root(
+            prefs, key if key != "unknown" else "other", legacy
+        )
+    return changed
 
 
 def save_user_settings(prefs=None) -> None:
@@ -104,10 +144,10 @@ def load_user_settings(prefs=None) -> bool:
     path = _settings_path()
     if not os.path.isfile(path):
         # First run after upgrade: seed JSON from whatever Blender still holds.
-        _migrate_legacy_tires_dir(prefs)
+        _migrate_legacy_game_roots(prefs)
         if (
             any(item.path for item in prefs.library_roots)
-            or any(item.path for item in prefs.tires_libraries)
+            or any(item.path for item in prefs.game_roots)
             or any(getattr(prefs, key, "") for key in _PERSIST_STRINGS)
         ):
             save_user_settings(prefs)
@@ -130,17 +170,17 @@ def load_user_settings(prefs=None) -> bool:
                 # Assign without relying on update mid-load batch
                 item.path = entry
 
-    tires_libs = data.get("tires_libraries")
-    prefs.tires_libraries.clear()
-    if isinstance(tires_libs, list):
-        valid_games = {g[0] for g in TIRES_GAME_ITEMS}
-        for entry in tires_libs:
+    game_roots = data.get("game_roots")
+    prefs.game_roots.clear()
+    if isinstance(game_roots, list):
+        valid_games = {g[0] for g in GAME_ITEMS}
+        for entry in game_roots:
             if not isinstance(entry, dict):
                 continue
             path_val = entry.get("path")
             if not isinstance(path_val, str) or not path_val.strip():
                 continue
-            item = prefs.tires_libraries.add()
+            item = prefs.game_roots.add()
             game = entry.get("game")
             item.game = game if game in valid_games else "other"
             item.path = path_val
@@ -150,12 +190,13 @@ def load_user_settings(prefs=None) -> bool:
         if isinstance(val, str):
             setattr(prefs, key, val)
 
-    _migrate_legacy_tires_dir(prefs)
+    if _migrate_legacy_game_roots(prefs, data):
+        save_user_settings(prefs)
     return True
 
 
 def _on_path_updated(self, context):
-    # ``self`` may be AddonPreferences, ForzaLibraryItem, or ForzaTiresLibraryItem.
+    # ``self`` may be AddonPreferences or one of the path PropertyGroups.
     save_user_settings(get_prefs())
 
 
@@ -169,19 +210,19 @@ class ForzaLibraryItem(PropertyGroup):
     )
 
 
-class ForzaTiresLibraryItem(PropertyGroup):
+class ForzaGameRootItem(PropertyGroup):
     game: EnumProperty(
         name="Game",
-        description="Which game's cars should use this tire folder",
-        items=TIRES_GAME_ITEMS,
+        description="Which game's imports should use this installation",
+        items=GAME_ITEMS,
         default="fh6",
         update=_on_path_updated,
     )
     path: StringProperty(
-        name="Tires Folder",
-        description="Shared tire compounds for this game: tire_*.zip (Xbox Media) or extracted "
-                    "tire_<name>\\tireL_<name>.modelbin. FH6 example: "
-                    "C:\\XboxGames\\Forza Horizon 6\\Content\\media\\cars\\_library\\scene\\tires",
+        name="Game Install Folder",
+        description="Game install folder (the one that contains Content). Also accepts "
+                    "Content or Content\\media. The path is stored as selected; Media is "
+                    "resolved automatically for materials, textures, shaders and tires",
         subtype="DIR_PATH",
         update=_on_path_updated,
     )
@@ -213,28 +254,28 @@ class IMPORT_OT_forza_lib_remove(Operator):
         return {"FINISHED"}
 
 
-class IMPORT_OT_forza_tires_lib_add(Operator):
-    bl_idname = "import_scene.forza_tires_lib_add"
-    bl_label = "Add Tire Library"
+class IMPORT_OT_forza_game_root_add(Operator):
+    bl_idname = "import_scene.forza_game_root_add"
+    bl_label = "Add Game Installation"
     bl_options = {"INTERNAL"}
 
     def execute(self, context):
-        get_prefs().tires_libraries.add()
+        get_prefs().game_roots.add()
         save_user_settings()
         return {"FINISHED"}
 
 
-class IMPORT_OT_forza_tires_lib_remove(Operator):
-    bl_idname = "import_scene.forza_tires_lib_remove"
-    bl_label = "Remove Tire Library"
+class IMPORT_OT_forza_game_root_remove(Operator):
+    bl_idname = "import_scene.forza_game_root_remove"
+    bl_label = "Remove Game Installation"
     bl_options = {"INTERNAL"}
 
     index: IntProperty(default=-1)
 
     def execute(self, context):
         prefs = get_prefs()
-        if 0 <= self.index < len(prefs.tires_libraries):
-            prefs.tires_libraries.remove(self.index)
+        if 0 <= self.index < len(prefs.game_roots):
+            prefs.game_roots.remove(self.index)
             save_user_settings(prefs)
         return {"FINISHED"}
 
@@ -255,27 +296,13 @@ class ForzaCarbinPreferences(AddonPreferences):
     bl_idname = ADDON_ID
 
     library_roots: CollectionProperty(type=ForzaLibraryItem)
-    tires_libraries: CollectionProperty(type=ForzaTiresLibraryItem)
+    game_roots: CollectionProperty(type=ForzaGameRootItem)
+    # Legacy RNA: tires_dir is still read by migration into game_roots.
+    tires_dir: StringProperty(default="", options={"HIDDEN"})
     gamedb_dir: StringProperty(
         name="GameDB Folder",
         description="Folder of decrypted GameDB .slt files (searched in addition to folders near the car). "
                     "Leave empty if you set GameDB Path per import or disable Use GameDB",
-        subtype="DIR_PATH",
-        default="",
-        update=_on_path_updated,
-    )
-    tires_dir: StringProperty(
-        name="Tires Folder (legacy)",
-        description="Deprecated single tires path — prefer Tire Libraries below. Still used as a "
-                    "last-resort fallback and auto-migrated into Tire Libraries on load",
-        subtype="DIR_PATH",
-        default="",
-        update=_on_path_updated,
-    )
-    materials_dir: StringProperty(
-        name="Materials Folder (optional)",
-        description="Override for shared materials library (on-disk materials tree). Leave empty to "
-                    "auto-detect or resolve from Materials.zip / Materials_pri_*.zip via the Media root",
         subtype="DIR_PATH",
         default="",
         update=_on_path_updated,
@@ -301,9 +328,9 @@ class ForzaCarbinPreferences(AddonPreferences):
     use_materials: BoolProperty(name="Import Materials", default=True)
     create_placeholder_materials: BoolProperty(
         name="Placeholder Materials",
-        description="Give every mesh a material slot named after the original Forza material "
-                    "(shared across meshes) even when the material can't be built",
-        default=True,
+        description="When a material cannot be built, assign a magenta error material so the "
+                    "mesh still has a named slot. Off by default (fail closed — leave slot empty)",
+        default=False,
     )
     quadrangulate_mesh: BoolProperty(name="Quadrangulate", default=False)
     hide_decal_transparent_pass: BoolProperty(name="Hide Transparent Decals", default=False)
@@ -335,23 +362,32 @@ class ForzaCarbinPreferences(AddonPreferences):
         )
 
         box = layout.box()
-        box.label(text="Tire Libraries (per game)")
+        box.label(text="Game Installations")
         box.label(
-            text="Import picks the matching game from the car path / Mojo vs GR2 media.",
+            text="Pick each game's install folder (the folder that contains Content).",
             icon="INFO",
         )
-        for i, item in enumerate(self.tires_libraries):
+        box.label(
+            text="Content or Content\\media also work. Shared materials/textures/shaders/tires come from Media.",
+            icon="INFO",
+        )
+        for i, item in enumerate(self.game_roots):
             row = box.row(align=True)
             row.prop(item, "game", text="")
             row.prop(item, "path", text="")
-            row.operator("import_scene.forza_tires_lib_remove", text="", icon="X").index = i
-        box.operator("import_scene.forza_tires_lib_add", text="Add Tire Folder", icon="ADD")
-
-        box = layout.box()
-        box.label(text="Overrides (optional)")
-        box.prop(self, "materials_dir")
-        if self.tires_dir:
-            box.prop(self, "tires_dir")
+            row.operator("import_scene.forza_game_root_remove", text="", icon="X").index = i
+            media = find_media_root(bpy.path.abspath(item.path)) if item.path else None
+            if item.path and media is None:
+                warn = box.row()
+                warn.alert = True
+                warn.label(
+                    text="Could not find Content\\media\\cars under this folder. "
+                         "Choose the game install folder (the one that contains Content).",
+                    icon="ERROR",
+                )
+            elif media:
+                box.label(text=f"Using Media: {media}", icon="CHECKMARK")
+        box.operator("import_scene.forza_game_root_add", text="Add Game Install Folder", icon="ADD")
 
         box = layout.box()
         box.label(text="Animations")
@@ -388,11 +424,11 @@ class ForzaCarbinPreferences(AddonPreferences):
 
 classes = (
     ForzaLibraryItem,
-    ForzaTiresLibraryItem,
+    ForzaGameRootItem,
     IMPORT_OT_forza_lib_add,
     IMPORT_OT_forza_lib_remove,
-    IMPORT_OT_forza_tires_lib_add,
-    IMPORT_OT_forza_tires_lib_remove,
+    IMPORT_OT_forza_game_root_add,
+    IMPORT_OT_forza_game_root_remove,
     IMPORT_OT_forza_clear_cache,
     ForzaCarbinPreferences,
 )
