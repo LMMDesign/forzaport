@@ -40,6 +40,17 @@ EXCLUDED_PARTS = {
 }
 
 
+def package_version() -> str:
+    """Prefer blender_manifest.toml version; fall back to bl_info."""
+    manifest = SOURCE / "blender_manifest.toml"
+    if manifest.is_file():
+        for line in manifest.read_text(encoding="utf-8").splitlines():
+            s = line.strip()
+            if s.startswith("version") and "=" in s:
+                return s.split("=", 1)[1].strip().strip('"').strip("'")
+    return bl_info_version()
+
+
 def bl_info_version() -> str:
     init = (SOURCE / "__init__.py").read_text(encoding="utf-8")
     module = ast.parse(init)
@@ -79,12 +90,13 @@ def included_files() -> list[Path]:
 
 
 def main() -> int:
-    version = bl_info_version()
+    version = package_version()
     dist = dist_dir()
     out_zip = dist / f"io_import_forza_carbin-{version}.zip"
 
     required = [
         SOURCE / "__init__.py",
+        SOURCE / "blender_manifest.toml",
         REPO / "LICENSE",
         REPO / "THIRD_PARTY.md",
         SOURCE / "tools" / "acl" / "forza_acl.dll",

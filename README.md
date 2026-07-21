@@ -19,10 +19,12 @@ an IR graph, then Blender nodes. Unknown SHAs fail closed.
 
 1. Download `io_import_forza_carbin-*.zip` from
    [Releases](https://github.com/LMMDesign/forzaport/releases).
-2. Blender → **Edit → Preferences → Add-ons → Install…** and choose the zip.
+2. Blender 4.2+ / 5.x: **Edit → Preferences → Get Extensions → drop-down →
+   Install from Disk…** and choose the zip.
+   (Older builds: **Add-ons → Install Legacy Add-on…**.)
 3. Enable **Import Forza Car (.carbin)**.
 
-The zip root must contain `io_import_forza_carbin/__init__.py` (one folder deep).
+The package includes `blender_manifest.toml` for the Extensions system.
 
 **From this repository**
 

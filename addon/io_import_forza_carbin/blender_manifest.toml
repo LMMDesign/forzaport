@@ -1,0 +1,33 @@
+schema_version = "1.0.0"
+
+id = "io_import_forza_carbin"
+version = "3.2.2"
+name = "Import Forza Car (.carbin)"
+tagline = "Import ForzaTech carbin and modelbin cars from Forza Horizon"
+maintainer = "LMMDesign"
+type = "add-on"
+
+website = "https://github.com/LMMDesign/forzaport"
+
+tags = ["Import-Export"]
+
+blender_version_min = "4.2.0"
+
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
+
+[permissions]
+files = "Read game Media archives and write local import caches"
+
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  ".git/",
+  "*.zip",
+  "parsing/mojo_pose_oracle.py",
+  "parsing/mojo_bake_debug.py",
+  "tools/gr2dump/granny2.dll",
+  "data/material_table.json",
+  "data/material_table_fh6.json",
+]

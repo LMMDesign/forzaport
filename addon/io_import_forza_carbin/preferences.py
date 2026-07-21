@@ -28,8 +28,9 @@ from .parsing.paths import (
     media_root_from_tires_dir,
 )
 
-# Fixed module id — must match the installed addon folder name.
-ADDON_ID = "io_import_forza_carbin"
+# Module id for AddonPreferences — must match the installed package name
+# (legacy folder install or bl_ext.*.io_import_forza_carbin for Extensions).
+ADDON_ID = __package__
 
 GAME_ITEMS = (
     ("fh6", "Forza Horizon 6", "Forza Horizon 6 install folder (the one that contains Content)"),
@@ -48,9 +49,17 @@ _PERSIST_STRINGS = (
 
 
 def get_prefs():
-    addon = bpy.context.preferences.addons.get(ADDON_ID)
-    if addon is None and __package__:
-        addon = bpy.context.preferences.addons.get(__package__)
+    addon = bpy.context.preferences.addons.get(__package__)
+    if addon is None:
+        # Fallbacks for mixed legacy / extension installs.
+        addon = bpy.context.preferences.addons.get("io_import_forza_carbin")
+    if addon is None:
+        for key in bpy.context.preferences.addons.keys():
+            if key.endswith(".io_import_forza_carbin") or key.endswith(
+                "io_import_forza_carbin"
+            ):
+                addon = bpy.context.preferences.addons.get(key)
+                break
     return addon.preferences if addon else None
 
 

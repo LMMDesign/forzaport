@@ -1,8 +1,8 @@
 bl_info = {
     "name": "Import Forza Car (.carbin)",
     "author": "Based on Doliman100 ForzaTech importers; FH5/FH6 Blender addon",
-    "version": (3, 2, 1),
-    "blender": (4, 1, 0),
+    "version": (3, 2, 2),
+    "blender": (4, 2, 0),
     "location": "File > Import > Forza Car (.carbin/.zip)",
     "description": "Import ForzaTech carbins (Forza Horizon / Motorsport). "
                    "Copy car .zips from the game into your own folder (zipped or extracted), "
@@ -78,7 +78,7 @@ def _reload_submodules():
 
 def register():
     # Hot reload is a workspace convenience, not production addon behavior.
-    if development_enabled() and "io_import_forza_carbin.animation" in sys.modules:
+    if development_enabled() and f"{__package__}.animation" in sys.modules:
         try:
             _reload_submodules()
         except Exception as exc:  # noqa: BLE001 — never block enable
