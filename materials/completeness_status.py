@@ -66,4 +66,5 @@ from .route_model import (  # noqa: E402
 # coverage of all MAIN_SURFACE_SHADING/VISIBILITY sites remains incomplete.
 CURRENT_SEMANTIC_COVERAGE = SemanticCoverage.PARTIAL_UNRESOLVED
 CURRENT_RUNTIME_ARCHITECTURE = RuntimeArchitecture.SAMPLE_SITE_IR
-CURRENT_PER_INSTANCE_EVALUATION = PerInstanceEvaluation.NOT_REGENERATED
+# Corpus regenerated from HEAD; semantics still incomplete → PARTIAL.
+CURRENT_PER_INSTANCE_EVALUATION = PerInstanceEvaluation.PARTIAL
