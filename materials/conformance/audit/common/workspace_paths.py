@@ -1,13 +1,16 @@
-"""Repository-root-relative paths for local material-conformance workspace."""
+"""Repository-root-relative paths for local material-conformance workspace.
+
+This copy lives under ``materials/conformance/audit/common/`` inside the add-on.
+"""
 from __future__ import annotations
 
 from pathlib import Path
 
-# tools/material_conformance/common/workspace_paths.py → repo root is parents[3]
-REPO_ROOT = Path(__file__).resolve().parents[3]
-
-ADDON_ROOT = REPO_ROOT / "addon" / "io_import_forza_carbin"
-ADDON_PACKAGE_PARENT = REPO_ROOT / "addon"
+# …/addon/io_import_forza_carbin/materials/conformance/audit/common/workspace_paths.py
+_ADDON_ROOT = Path(__file__).resolve().parents[4]
+REPO_ROOT = _ADDON_ROOT.parents[1]  # …/Forza Import
+ADDON_ROOT = _ADDON_ROOT
+ADDON_PACKAGE_PARENT = _ADDON_ROOT.parent
 
 DOCS_MATERIAL = REPO_ROOT / "docs" / "material-conformance"
 STATUS_MD = DOCS_MATERIAL / "STATUS.md"
@@ -28,7 +31,6 @@ FH6_RIP_LEGACY = ARCHIVE_RE / "fh6-rip-legacy"
 
 
 def ensure_addon_on_sys_path() -> Path:
-    """Insert add-on parent on sys.path so `io_import_forza_carbin` imports resolve."""
     import sys
 
     p = str(ADDON_PACKAGE_PARENT)
