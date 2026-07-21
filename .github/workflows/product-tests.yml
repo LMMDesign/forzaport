@@ -15,7 +15,23 @@ jobs:
         with:
           python-version: "3.11"
       - name: Run product tests
-        working-directory: .
         env:
-          PYTHONPATH: addon
+          PYTHONPATH: ${{ github.workspace }}/addon
         run: python -m unittest discover -s tests -p "test_*.py"
+
+  release-zip:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build release zip
+        run: python scripts/build_release.py
+      - name: Upload zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: io_import_forza_carbin-zip
+          path: dist/io_import_forza_carbin-*
+          if-no-files-found: error

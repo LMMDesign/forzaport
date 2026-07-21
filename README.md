@@ -15,11 +15,26 @@ an IR graph, then Blender nodes. Unknown SHAs fail closed.
 
 ## Install
 
-1. Build or download a release zip: `python scripts/build_release.py`
-2. Blender → **Edit → Preferences → Add-ons → Install…**
-3. Enable **Import Forza Car (.carbin)**
+**From a release zip (recommended)**
 
-Or copy this folder into Blender’s `scripts/addons` directory.
+1. Download `io_import_forza_carbin-*.zip` from
+   [Releases](https://github.com/LMMDesign/forzaport/releases).
+2. Blender → **Edit → Preferences → Add-ons → Install…** and choose the zip.
+3. Enable **Import Forza Car (.carbin)**.
+
+The zip root must contain `io_import_forza_carbin/__init__.py` (one folder deep).
+
+**From this repository**
+
+1. Copy `addon/io_import_forza_carbin/` into Blender’s `scripts/addons/` directory
+   (folder name must remain `io_import_forza_carbin`).
+2. Enable the add-on in Preferences.
+
+Or build a zip locally from the repository root:
+
+```text
+python scripts/build_release.py
+```
 
 Optional: decrypted GameDB `.slt` for wheel layout; `dxc` for DXIL binding
 extraction (`FORZA_DXC`). See `THIRD_PARTY.md`.
