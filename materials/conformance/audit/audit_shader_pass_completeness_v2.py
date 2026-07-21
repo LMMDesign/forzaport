@@ -38,6 +38,11 @@ from io_import_forza_carbin.materials.dxil_sample_sites import (  # noqa: E402
     extract_sample_sites,
     register_summary,
 )
+from io_import_forza_carbin.materials.serialized_material_shader_schema import (  # noqa: E402
+    build_serialized_schema_from_bytes,
+)
+from io_import_forza_carbin.parsing.material import MaterialSystemObject  # noqa: E402
+from io_import_forza_carbin.parsing.binary import BinaryStream  # noqa: E402
 from io_import_forza_carbin.materials.pass_contracts import (  # noqa: E402
     list_contracted_shas,
     load_shader_pass_contract,
@@ -126,6 +131,34 @@ def _corpus_families(catalog: dict) -> list[dict]:
     return out
 
 
+def _cbmp_from_shaderbin(sb_bytes: bytes) -> dict[int, int]:
+    """Build hash→cbuffer-offset map from serialized CBMP (FTS-parity)."""
+    if not sb_bytes:
+        return {}
+    try:
+        mso = MaterialSystemObject()
+        mso.deserialize(BinaryStream(memoryview(sb_bytes)))
+        if mso.cbmp:
+            return {int(k) & 0xFFFFFFFF: int(v) for k, v in mso.cbmp.items()}
+    except Exception:
+        pass
+    try:
+        schema = build_serialized_schema_from_bytes(sb_bytes)
+        entries = (schema.cbmp or {}).get("entries") or []
+        out: dict[int, int] = {}
+        for e in entries:
+            nh = e.get("name_hash")
+            if not nh:
+                continue
+            h = int(str(nh), 16) if isinstance(nh, str) else int(nh)
+            out[h & 0xFFFFFFFF] = int(
+                e.get("effective_byte_offset") or e.get("id_or_offset") or 0
+            )
+        return out
+    except Exception:
+        return {}
+
+
 def _analyze_all_psos(
     *,
     shader_name: str,
@@ -162,6 +195,8 @@ def _analyze_all_psos(
         live_sha = _sha(sb_bytes) if sb_bytes else ""
         if live_sha and live_sha != sha:
             result["errors"].append(f"SHA drift catalog={sha} live={live_sha}")
+        cbmp = _cbmp_from_shaderbin(sb_bytes)
+        result["cbmp_entry_count"] = len(cbmp)
 
         pso_names = [
             n.replace("\\", "/")
@@ -194,7 +229,7 @@ def _analyze_all_psos(
                 "error": None,
             }
             try:
-                sites = extract_sample_sites(_disasm(dxc, raw), cbmp={})
+                sites = extract_sample_sites(_disasm(dxc, raw), cbmp=cbmp)
                 entry["sample_site_count"] = len(sites)
                 entry["register_summary"] = register_summary(sites)
                 for s in sites:
