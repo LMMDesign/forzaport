@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "shader_name": "car_tires_pg",
+  "shaderbin_sha256": "0b4530398a6cd3409819a3a9289532bf3c52d18689224121dcad986dd6870270",
+  "status": "CONTRACTED_NO_BLENDER_IMPORT",
+  "schema_notes": "SimpleCar t19–t25 are Legacy* maps on _Standard_L only. Absent from CarLight because primary lighting uses different registers; Legacy variant required. B2 tyre shading not started — sites documented only.",
+  "relevant_passes": [
+    {
+      "scenario": "CarLightScenario",
+      "variant": "_Standard",
+      "archive_member": "_Standard/car_tires_pgCarLightScenario.pcdxil.pso",
+      "stage": "ps",
+      "blender_relevance": "MAIN_SURFACE_SHADING",
+      "reason": "Non-legacy primary tyre lighting (variant Legacy=0).",
+      "requires_variant": "_Standard",
+      "import_sample_sites": []
+    },
+    {
+      "scenario": "CarLightScenario",
+      "variant": "_Standard_L",
+      "archive_member": "_Standard_L/car_tires_pgCarLightScenario.pcdxil.pso",
+      "stage": "ps",
+      "blender_relevance": "MAIN_SURFACE_SHADING",
+      "reason": "Legacy primary tyre lighting (variant Legacy=1).",
+      "requires_variant": "_Standard_L",
+      "import_sample_sites": []
+    },
+    {
+      "scenario": "SimpleCarLightScenario",
+      "variant": "_Standard_L",
+      "archive_member": "_Standard_L/car_tires_pgSimpleCarLightScenario.pcdxil.pso",
+      "stage": "ps",
+      "blender_relevance": "SURFACE_VISIBILITY",
+      "reason": "Legacy SimpleCar samples t19–t25 (LegacyGlobalBase etc.). Not imported to Blender until B2.",
+      "requires_variant": "_Standard_L",
+      "import_sample_sites": [
+        {
+          "sample_site_id": "tires_pg|SimpleCar|_Standard_L|t19",
+          "texture_register": 19,
+          "expected_comps": null,
+          "uv_expression": {
+            "kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT",
+            "note": "TEXCOORD ancestry includes 0 and 4; full DAG not contracted for Blender"
+          },
+          "uv_branch_status": "UNRESOLVED",
+          "declared_txmp_name": "LegacyGlobalBase",
+          "semantic_role": "legacy_tyre_map",
+          "final_use": "SimpleCar visibility/lighting path",
+          "blender_import": false,
+          "blender_relevance": "SURFACE_VISIBILITY",
+          "evidence": [
+            "Present on _Standard_L SimpleCar only",
+            "Absent from CarLightScenario sample set for non-legacy registers overlap",
+            "B2 not started — fail closed for Blender import"
+          ]
+        },
+        {
+          "sample_site_id": "tires_pg|SimpleCar|_Standard_L|t20-t25",
+          "texture_register_range": [20, 25],
+          "uv_expression": {"kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT"},
+          "uv_branch_status": "UNRESOLVED",
+          "semantic_role": "legacy_tyre_maps",
+          "blender_import": false,
+          "blender_relevance": "SURFACE_VISIBILITY",
+          "evidence": [
+            "Grouped Legacy* SimpleCar sites; require per-instruction contracts before Blender"
+          ]
+        }
+      ]
+    }
+  ],
+  "variant_selection": {
+    "parameter_hash": "0xDA0D7DC4",
+    "parameter_name": "Legacy",
+    "off_directory": "_Standard",
+    "on_directory": "_Standard_L",
+    "reject_if_absent": true
+  },
+  "unresolved": [
+    "Per-instruction UV DAG for t19–t25",
+    "Blender import deferred until B2 tyre milestone"
+  ]
+}

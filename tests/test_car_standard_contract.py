@@ -914,13 +914,18 @@ class CarStandardId40DoorTagsCutoutTests(unittest.TestCase):
         self.assertFalse(ir.rejection_reasons)
         self.assertIsNotNone(ir.opacity)
         self.assertIsNone(ir.shading_attenuation)
+        self.assertIsNotNone(ir.blender_alpha_plan)
+        self.assertEqual(ir.blender_alpha_plan.render_mode, "CLIP")
+        self.assertAlmostEqual(float(ir.blender_alpha_plan.alpha_threshold), 0.5)
         self.assertTrue(
             _opacity_is_alpha_times_bc_a(ir.opacity),
             "door-tag cutout must be Alpha.r × BC.a product",
         )
-        # Outer CLIP clamp threshold 0.5 (ShadowDepth contract)
-        self.assertIsInstance(ir.opacity, Clamp)
-        self.assertAlmostEqual(float(ir.opacity.lo), 0.5)
+        # Threshold is on BlenderAlphaPlan — not encoded as Clamp(lo=0.5).
+        from io_import_forza_carbin.materials.forza_ir import Clamp
+
+        if isinstance(ir.opacity, Clamp):
+            self.assertEqual(float(ir.opacity.lo), 0.0)  # saturate only
         plan = graph_build_plan_from_ir(ir)
         ops = [s.get("op") for s in plan]
         self.assertIn("multiply_alpha_by_basecolor_a", ops)
@@ -929,6 +934,7 @@ class CarStandardId40DoorTagsCutoutTests(unittest.TestCase):
         for step in plan:
             if step.get("op") == "configure_transparency":
                 self.assertEqual(step.get("mode"), "CLIP")
+                self.assertAlmostEqual(float(step.get("threshold")), 0.5)
             if step.get("op") == "texture" and step.get("binds") == "alpha":
                 path = (step["slot"].get("path") or "").lower()
                 self.assertIn("flat_texture_white", path)

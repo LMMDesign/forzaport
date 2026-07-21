@@ -1,16 +1,15 @@
-"""Material capability registry and UV policies (no bpy).
+"""Material capability registry (no bpy).
 
 Capability lifecycle (B): constructing a complete typed ``CleanSurfaceCapability``
 *is* selection. ``select_clean_surface_capability`` / ``probe_*`` helpers only
 mirror that payload into ``CapabilityProbeResult`` for diagnostics — they must
 not re-approve or disagree with an already-complete capability.
 
-UVChoice remains a proven MatI→TEXCOORD policy used by the authoritative resolver.
+UVChoice is **not** a global policy. It is keyed by exact shaderbin SHA via
+``materials.uv.uv_choice_contracts`` (car_standard SHA only today).
 """
 
 from __future__ import annotations
-
-from dataclasses import dataclass
 
 from .model import (
     CapabilityProbeResult,
@@ -18,71 +17,18 @@ from .model import (
     MaterialCapabilityKind,
     ProvenanceDiagnostic,
 )
-
-# FTS NameHash — proven in car_standard CarLightScenario DXIL (not a heuristic).
-UV_CHOICE_ON_CH1_OFF_CH2 = 0x402B8ED0
-
-# Ch1 = first mesh UV set (TEXCOORD0); Ch2 = second (TEXCOORD1).
-UV_CHOICE_TRUE_TEXCOORD = 0
-UV_CHOICE_FALSE_TEXCOORD = 1
-
-
-@dataclass(frozen=True)
-class UvPolicyEvidence:
-    """DXIL-proven MatI UV policy for production UV resolution."""
-
-    param_hash: int
-    param_name: str
-    true_texcoord: int
-    false_texcoord: int
-    applies_to_txmp: tuple[str, ...]
-    pso: str
-    evidence: str
-
-
-PROVEN_UV_POLICIES: tuple[UvPolicyEvidence, ...] = (
-    UvPolicyEvidence(
-        param_hash=UV_CHOICE_ON_CH1_OFF_CH2,
-        param_name="UVChoice_OnCh1_OffCh2",
-        true_texcoord=UV_CHOICE_TRUE_TEXCOORD,
-        false_texcoord=UV_CHOICE_FALSE_TEXCOORD,
-        applies_to_txmp=(
-            "BaseColorAlpha",
-            "BaseColorAlpha_1",
-            "Alpha",
-            "Normal",
-            "RoughMetalAO",
-        ),
-        pso="car_standardCarLightScenario.pcdxil.pso",
-        evidence=(
-            "DXIL: CB load -> icmp eq 0 -> phi loadInput sigId 1 (false) "
-            "vs sigId 0 (true); feeds t16/t17/t20/t26 sample coords"
-        ),
-    ),
+from .uv.uv_choice_contracts import (
+    CAR_STANDARD_SHADERBIN_SHA256,
+    UV_CHOICE_BY_SHA,
+    UV_CHOICE_FALSE_TEXCOORD,
+    UV_CHOICE_ON_CH1_OFF_CH2,
+    UV_CHOICE_TRUE_TEXCOORD,
+    UvChoiceContract,
+    resolve_uv_choice_texcoord,
 )
 
-
-def resolve_uv_choice_texcoord(params: dict) -> tuple[int, ProvenanceDiagnostic] | None:
-    """If MatI carries proven UVChoice, return (texcoord_index, evidence)."""
-    p = params.get(UV_CHOICE_ON_CH1_OFF_CH2)
-    if p is None:
-        p = params.get(UV_CHOICE_ON_CH1_OFF_CH2 & 0xFFFFFFFF)
-    if p is None or getattr(p, "type", None) != 3:
-        return None
-    texcoord = (
-        UV_CHOICE_TRUE_TEXCOORD if bool(p.value) else UV_CHOICE_FALSE_TEXCOORD
-    )
-    return (
-        texcoord,
-        ProvenanceDiagnostic(
-            kind="UVChoice_OnCh1_OffCh2",
-            detail=(
-                f"MatI bool={bool(p.value)} -> TEXCOORD{texcoord} "
-                f"({PROVEN_UV_POLICIES[0].evidence})"
-            ),
-            source="materials.capabilities",
-        ),
-    )
+# Back-compat evidence listing for docs/tests (SHA-gated at resolve time).
+PROVEN_UV_POLICIES: tuple[UvChoiceContract, ...] = tuple(UV_CHOICE_BY_SHA.values())
 
 
 def select_clean_surface_capability(
@@ -127,14 +73,12 @@ def select_clean_surface_capability(
     )
 
 
-# Back-compat name used by older tests / docs; forwards to typed selector.
 def probe_clean_v3_capability(
     *,
     shader_name: str | None,
     capability: CleanSurfaceCapability | None = None,
     evidence: tuple[ProvenanceDiagnostic, ...] = (),
     rejection_reasons: tuple[str, ...] = (),
-    # Deprecated — ignored if present; kept only to fail loud if callers pass it.
     has_resolvable_surface: bool | None = None,
 ) -> CapabilityProbeResult:
     """Select clean surface from a typed payload (no builder-success input)."""
@@ -165,3 +109,18 @@ def probe_all_capabilities(
         evidence=evidence,
         rejection_reasons=rejection_reasons,
     )
+
+
+__all__ = [
+    "CAR_STANDARD_SHADERBIN_SHA256",
+    "PROVEN_UV_POLICIES",
+    "UV_CHOICE_BY_SHA",
+    "UV_CHOICE_FALSE_TEXCOORD",
+    "UV_CHOICE_ON_CH1_OFF_CH2",
+    "UV_CHOICE_TRUE_TEXCOORD",
+    "UvChoiceContract",
+    "probe_all_capabilities",
+    "probe_clean_v3_capability",
+    "resolve_uv_choice_texcoord",
+    "select_clean_surface_capability",
+]

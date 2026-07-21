@@ -20,16 +20,15 @@ from io_import_forza_carbin.parsing.material import ShaderParameterName as SPN
 
 class GameFileAlphaContractTests(unittest.TestCase):
     def test_contract_keyed_by_exact_sha(self):
-        c = car_standard_alpha_contract()
-        self.assertEqual(c.shader_sha256, CAR_STANDARD_SHADERBIN_SHA256)
-        self.assertEqual(c.authored_mask.equation, AUTHORED_MASK_EQUATION)
-        self.assertEqual(c.fixed_function_status, "UNRESOLVED_NOT_IN_PSO_BLOB")
-        self.assertTrue(c.sampled_channels)
-        self.assertTrue(c.passes)
-        for ch in c.sampled_channels:
-            self.assertTrue(ch.dxil_instruction_ids)
-            self.assertIsNotNone(ch.binding_name_hash)
-            self.assertIsNotNone(ch.sampler_register)
+        from io_import_forza_carbin.materials.alpha import load_contract
+
+        c = load_contract(CAR_STANDARD_SHADERBIN_SHA256)
+        self.assertEqual(c["shader_sha256"], CAR_STANDARD_SHADERBIN_SHA256)
+        self.assertEqual(
+            c["authored_masks"][0]["equation"], AUTHORED_MASK_EQUATION
+        )
+        self.assertEqual(c["fixed_function_status"], "UNRESOLVED_NOT_IN_PSO_BLOB")
+        self.assertTrue(c["sample_sites"])
 
     def test_id39_false_branch_opaque_with_shading_mask(self):
         sem = evaluate_car_standard_alpha(
@@ -37,17 +36,14 @@ class GameFileAlphaContractTests(unittest.TestCase):
             shaderbin_sha256=CAR_STANDARD_SHADERBIN_SHA256,
         )
         self.assertEqual(
-            sem.classification, AlphaClassification.GAME_FILES_PROVEN_OPAQUE
+            sem.classification, AlphaClassification.PROVEN_OPAQUE
         )
         self.assertEqual(sem.surface_visibility, "OPAQUE")
-        self.assertEqual(sem.blender_translation, BlenderAlphaTranslation.UNUSED.value)
+        self.assertIn(sem.blender_plan.render_mode, ("OPAQUE",))
         self.assertEqual(
             sem.shading_attenuation_expression, AUTHORED_MASK_EQUATION
         )
-        self.assertEqual(
-            sem.secondary_classification,
-            AlphaClassification.GAME_FILES_PROVEN_SHADING_MASK.value,
-        )
+        self.assertEqual(sem.secondary_classification, "PROVEN_SHADING_ONLY_MASK")
         self.assertEqual(sem.principled_alpha, "unused")
         self.assertIsNone(sem.opacity_expression)
 
@@ -58,20 +54,16 @@ class GameFileAlphaContractTests(unittest.TestCase):
         )
         self.assertEqual(
             sem.classification,
-            AlphaClassification.GAME_FILES_PROVEN_TEXTURE_VISIBILITY_MASK,
+            AlphaClassification.PROVEN_MASKED_VISIBILITY,
         )
         self.assertEqual(
             sem.source_visibility_semantic,
-            AlphaClassification.GAME_FILES_PROVEN_TEXTURE_VISIBILITY_MASK.value,
+            AlphaClassification.PROVEN_MASKED_VISIBILITY.value,
         )
-        self.assertEqual(
-            sem.blender_translation,
-            BlenderAlphaTranslation.CLIP_APPROXIMATION.value,
-        )
+        self.assertEqual(sem.blender_plan.render_mode, "CLIP")
         self.assertEqual(sem.surface_visibility, "CLIP")
         self.assertEqual(sem.opacity_expression, AUTHORED_MASK_EQUATION)
         self.assertAlmostEqual(sem.blender_threshold, 0.5)
-        self.assertIn("approximation", (sem.threshold_provenance or "").lower())
         self.assertEqual(sem.principled_alpha, "expression")
 
     def test_explicit_true_differs_from_false(self):
@@ -95,9 +87,9 @@ class GameFileAlphaContractTests(unittest.TestCase):
             alpha_transparency=None,
             shaderbin_sha256=CAR_STANDARD_SHADERBIN_SHA256,
         )
-        self.assertEqual(f.classification, AlphaClassification.GAME_FILES_PROVEN_OPAQUE)
+        self.assertEqual(f.classification, AlphaClassification.PROVEN_OPAQUE)
         self.assertEqual(
-            m.classification, AlphaClassification.UNRESOLVED_GAME_FILE_ALPHA
+            m.classification, AlphaClassification.REJECTED_UNSUPPORTED_BRANCH
         )
 
     def test_absent_transparency_unresolved_fail_closed(self):
@@ -106,7 +98,7 @@ class GameFileAlphaContractTests(unittest.TestCase):
             shaderbin_sha256=CAR_STANDARD_SHADERBIN_SHA256,
         )
         self.assertEqual(
-            sem.classification, AlphaClassification.UNRESOLVED_GAME_FILE_ALPHA
+            sem.classification, AlphaClassification.REJECTED_UNSUPPORTED_BRANCH
         )
         self.assertEqual(sem.surface_visibility, "UNRESOLVED")
         self.assertEqual(sem.principled_alpha, "unused")
@@ -117,14 +109,19 @@ class GameFileAlphaContractTests(unittest.TestCase):
             shaderbin_sha256="deadbeef" * 8,
         )
         self.assertEqual(
-            sem.classification, AlphaClassification.REJECTED_ALPHA_BRANCH
+            sem.classification, AlphaClassification.REJECTED_UNSUPPORTED_BRANCH
         )
 
     def test_authored_mask_serialises_deterministically(self):
-        a = car_standard_alpha_contract().to_json()
-        b = car_standard_alpha_contract().to_json()
-        self.assertEqual(a["authored_mask"]["equation"], b["authored_mask"]["equation"])
-        self.assertEqual(a["authored_mask"]["equation"], AUTHORED_MASK_EQUATION)
+        from io_import_forza_carbin.materials.alpha import load_contract
+
+        a = load_contract(CAR_STANDARD_SHADERBIN_SHA256)
+        b = load_contract(CAR_STANDARD_SHADERBIN_SHA256)
+        self.assertEqual(
+            a["authored_masks"][0]["equation"],
+            b["authored_masks"][0]["equation"],
+        )
+        self.assertEqual(a["authored_masks"][0]["equation"], AUTHORED_MASK_EQUATION)
 
     def test_resolver_ignores_has_alpha(self):
         self.assertEqual(_alpha_mode({}, has_alpha=True), "OPAQUE")

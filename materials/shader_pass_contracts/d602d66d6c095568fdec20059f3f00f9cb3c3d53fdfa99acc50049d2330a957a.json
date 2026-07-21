@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "shader_name": "retro_licenseplate_atlas",
+  "shaderbin_sha256": "d602d66d6c095568fdec20059f3f00f9cb3c3d53fdfa99acc50049d2330a957a",
+  "status": "APPROVED_PARTIAL",
+  "schema_notes": "t16 is CH1MaskTexture. Coords compose TEXCOORD3 (atlas cell) + TEXCOORD0 (local), not a UV-set select.",
+  "relevant_passes": [
+    {
+      "scenario": "CarLightScenario",
+      "variant": "",
+      "archive_member": "retro_licenseplate_atlasCarLightScenario.pcdxil.pso",
+      "stage": "ps",
+      "blender_relevance": "MAIN_SURFACE_SHADING",
+      "reason": "Primary surface; t16 not sampled here.",
+      "import_sample_sites": []
+    },
+    {
+      "scenario": "SimpleCarLightScenario",
+      "variant": "",
+      "archive_member": "retro_licenseplate_atlasSimpleCarLightScenario.pcdxil.pso",
+      "stage": "ps",
+      "blender_relevance": "SURFACE_VISIBILITY",
+      "reason": "CH1MaskTexture t16 for visibility/mask with atlas UV composition.",
+      "import_sample_sites": [
+        {
+          "sample_site_id": "licenseplate_atlas|SimpleCarLight|t16|ch1mask",
+          "texture_register": 16,
+          "sampler_register": 12,
+          "expected_comps": [0],
+          "uv_expression": {
+            "kind": "Compose",
+            "ops": [
+              "AtlasOffset(TEXCOORD3)",
+              "Add(TEXCOORD0)",
+              "Scale(CH1MaskUVTiling)"
+            ],
+            "summary": "Scale(CH1MaskUVTiling, Add(AtlasOffset(TEXCOORD3), TEXCOORD0))"
+          },
+          "uv_branch_status": "PROVEN_COMPOSITION",
+          "declared_txmp_name": "CH1MaskTexture",
+          "declared_txmp_hash": "0x3380008B",
+          "semantic_role": "channel1_mask",
+          "final_use": "SV_Target.a / discard chain",
+          "active_branch": "SimpleCarLightScenario",
+          "mati_provenance": "TXMP CH1MaskTexture declared; tiling via CH1MaskUVTiling CB",
+          "blender_import": true,
+          "blender_relevance": "SURFACE_VISIBILITY",
+          "evidence": [
+            "DXIL: TEXCOORD3 drives atlas cell offset; TEXCOORD0 added; * CH1MaskUVTiling → %633/%635",
+            "Not SELECT_AMONG — both channels used together",
+            "CarLightScenario incompleteness: mask sampled on SimpleCar only"
+          ],
+          "unresolved_fields": [
+            "Full AtlasOffset decode expression not yet lowered to IR ops for Blender"
+          ]
+        }
+      ]
+    }
+  ],
+  "unresolved": [
+    "Blender IR lowering for AtlasOffset(TEXCOORD3)+TEXCOORD0 composition pending — site contracted, graph compile may reject until IR op exists"
+  ]
+}

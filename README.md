@@ -84,20 +84,28 @@ extracted car folders shown in the quick-import menu.
 
 Materials are built **directly from game data** (fail closed):
 
-1. Parse MatI → parent materialbin/shaderbin (Local vs Instance params, TXMP maps)
-2. Resolve parameter identity via `data/name_hashes.json` (FTS NameHashService)
-3. Support only exact FH6 TXMP slots: `BaseColorAlpha`, `Alpha`, `Normal` variants, and `RoughMetalAO`
-4. Disassemble `*CarLightScenario.pcdxil.pso` with **dxc** for UV, sampler, and tiling links.
-   Proven rewrite rule: `UVChoice_OnCh1_OffCh2` → `TEXCOORD0` if true, `TEXCOORD1` if false
-   (see `MATERIAL_BOUNDARY.md` / `materials.capabilities`); production still has residual
-   multi-UV shortcuts until UV resolution v2 lands.
-5. Build a fresh minimal graph: Base Color, external Alpha, Normal, then R/G/B Roughness/Metallic/AO
+1. Parse the **complete serialized schema** from MatI → parent materialbin/shaderbin
+   (Local vs Instance params, TXMP/CBMP/SPMP, defaults, companion `shaderbin.xml`
+   variant metadata where present).
+2. Resolve parameter identity via `data/name_hashes.json` (FTS NameHashService).
+3. Analyse **exact pass/variant sample sites** with **dxc**: every `.pcdxil.pso`
+   archive member is a distinct identity (shaderbin SHA + full member path +
+   variant directory + scenario + stage + PSO SHA). `CarLightScenario` under the
+   proven raster variant is the usual **primary surface** pass — never the sole
+   source of material information.
+4. Exact-SHA **pass contracts** (`materials/shader_pass_contracts/<sha>.json`)
+   declare which additional passes contribute which sample sites and whether
+   those facts are relevant to Blender (`MAIN_SURFACE_SHADING`, `VISIBILITY`,
+   `DEBUG_ONLY`, …). Unknown SHAs fail closed.
+5. Evaluate the MatI instance (bindings + branch conditions) into `ForzaMaterialIR`,
+   then compile a minimal Blender graph.
 
-There is no legacy material fallback and no shared FH5/FM translation. Unsupported games,
-ambiguous UV expressions, and unknown material capabilities remain unresolved until their
-game files have been decoded. External `Alpha` is an R-channel mask; when its lighting PSO
-does not sample the slot, it inherits the proven `BaseColorAlpha` UV from the same material
-schema. Alpha is rendered through an explicit Transparent/Principled surface mix.
+Static DXIL analysis is cached by game + shaderbin SHA + full PSO member path +
+PSO SHA + parser version + variant + pass + stage. Instance evaluation is never
+memoized by shader name alone.
+
+UVChoice (`UVChoice_OnCh1_OffCh2` → TEXCOORD0/1) applies only to exact SHA
+`8df4836b…` (car_standard) until another SHA has independent DXIL proof.
 
 Requires `dxc` (see `THIRD_PARTY.md` / `FORZA_DXC`).
 

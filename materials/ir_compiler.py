@@ -403,10 +403,18 @@ def graph_build_plan_from_ir(ir: ForzaMaterialIR) -> tuple[dict[str, Any], ...]:
             normal_step["strength"] = float(ir.normal.strength)
         steps.append(normal_step)
 
-    if ir.opacity is not None:
-        atex = _find_texture_sample(ir.opacity)
+    plan = getattr(ir, "blender_alpha_plan", None)
+    if ir.opacity is not None or (
+        plan is not None and plan.alpha_expression is not None
+    ):
+        opacity_expr = (
+            plan.alpha_expression
+            if plan is not None and plan.alpha_expression is not None
+            else ir.opacity
+        )
+        atex = _find_texture_sample(opacity_expr)
         if atex is None:
-            raise RuntimeError("IR opacity missing TextureSample")
+            raise RuntimeError("IR opacity/alpha plan missing TextureSample")
         slot = _slot_from_sample(atex.sample, role="alpha")
         alpha_slot_dict = _slot_dict(slot, param_name="Alpha")
         alpha_slot_dict["channel"] = slot.channel or "x"
@@ -419,18 +427,39 @@ def graph_build_plan_from_ir(ir: ForzaMaterialIR) -> tuple[dict[str, Any], ...]:
             }
         )
         steps.append({"op": "alpha_separate_red"})
-        if _opacity_is_alpha_times_bc_a(ir.opacity):
+        # Product multiply is declared by BlenderAlphaPlan / contract, not tree sniff.
+        use_product = False
+        if plan is not None and plan.render_mode in ("CLIP", "HASHED", "BLEND"):
+            use_product = True
+        elif plan is None:
+            use_product = _opacity_is_alpha_times_bc_a(opacity_expr)
+        if use_product:
             steps.append(
                 {
                     "op": "multiply_alpha_by_basecolor_a",
                     "label": (
                         "cutout = saturate(Alpha.r × BaseColorAlpha.a) "
-                        "(AlphaTransparency=true)"
+                        "(contract BlenderAlphaPlan)"
                     ),
                 }
             )
-        mode = "CLIP" if isinstance(ir.opacity, Clamp) else "BLEND"
-        threshold = float(ir.opacity.lo) if isinstance(ir.opacity, Clamp) else 0.5
+        if plan is not None:
+            mode = str(plan.render_mode)
+            threshold = float(
+                plan.alpha_threshold if plan.alpha_threshold is not None else 0.5
+            )
+        else:
+            # Legacy non-contracted path only.
+            mode = (
+                "CLIP"
+                if isinstance(opacity_expr, Clamp) and float(opacity_expr.lo) > 0.0
+                else "BLEND"
+            )
+            threshold = (
+                float(opacity_expr.lo)
+                if isinstance(opacity_expr, Clamp) and float(opacity_expr.lo) > 0.0
+                else 0.5
+            )
         if mode == "CLIP":
             steps.append({"op": "alpha_clip", "threshold": threshold})
         steps.append({"op": "link_alpha_and_transparent_mix"})
@@ -535,7 +564,17 @@ def compile_forza_material_ir(ir: ForzaMaterialIR, image_service, *, material_na
             multiply_tint=tint_rgba,
             tint_metal_blend=tint_blend,
             multiply_coverage=(
-                attenuation is not None and ir.opacity is None
+                (
+                    getattr(ir, "blender_alpha_plan", None) is not None
+                    and bool(
+                        ir.blender_alpha_plan.apply_shading_attenuation_to_base_color
+                    )
+                )
+                or (
+                    getattr(ir, "blender_alpha_plan", None) is None
+                    and attenuation is not None
+                    and ir.opacity is None
+                )
             ),
         )
     elif base_const is not None:
@@ -565,11 +604,40 @@ def compile_forza_material_ir(ir: ForzaMaterialIR, image_service, *, material_na
     alpha_mode = "OPAQUE"
     alpha_threshold = 0.5
     alpha_cutout_uses_bc_a_product = False
-    if ir.opacity is not None:
+    plan = getattr(ir, "blender_alpha_plan", None)
+    if plan is not None:
+        # Explicit BlenderAlphaPlan — never infer mode from Clamp/tree shape.
+        alpha_mode = str(plan.render_mode or "OPAQUE")
+        if alpha_mode == "CLIP":
+            alpha_threshold = float(
+                plan.alpha_threshold if plan.alpha_threshold is not None else 0.5
+            )
+        # Wire alpha texture from plan expression or IR opacity / attenuation.
+        src_expr = plan.alpha_expression or ir.opacity
+        if src_expr is not None:
+            a = _find_texture_sample(src_expr)
+            if a is not None:
+                alpha_slot = _slot_from_sample(a.sample, role="alpha")
+            # Product compile flag from plan (masked visibility), not tree sniff.
+            alpha_cutout_uses_bc_a_product = alpha_mode in ("CLIP", "HASHED", "BLEND")
+        elif attenuation is not None:
+            a = _coverage_alpha_sample_from_attenuation(attenuation)
+            if a is not None:
+                alpha_slot = _slot_from_sample(a.sample, role="alpha")
+    elif ir.opacity is not None:
+        # Legacy IR without BlenderAlphaPlan — reject for contracted SHA.
+        sha = ir.shader.shaderbin_sha256 or ""
+        from .alpha import CAR_STANDARD_SHADERBIN_SHA256
+
+        if sha == CAR_STANDARD_SHADERBIN_SHA256:
+            raise RuntimeError(
+                "contracted car_standard IR missing blender_alpha_plan — "
+                "refuse legacy Clamp/mode inference"
+            )
         a = _find_texture_sample(ir.opacity)
         if a is not None:
             alpha_slot = _slot_from_sample(a.sample, role="alpha")
-            if isinstance(ir.opacity, Clamp):
+            if isinstance(ir.opacity, Clamp) and float(ir.opacity.lo) > 0.0:
                 alpha_mode = "CLIP"
                 alpha_threshold = float(ir.opacity.lo)
             else:

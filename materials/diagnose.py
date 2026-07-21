@@ -156,8 +156,17 @@ def _texture_diagnostics(
         sem = try_semantics_for_txmp_hash(h)
         role = sem.role if sem is not None else None
         bind = bindings.textures.get(int(treg)) if bindings is not None else None
+        sha = None
+        if bindings is not None:
+            sha = (getattr(bindings, "source_hashes", None) or {}).get(
+                "shaderbin_sha256"
+            )
         uv = (
-            _binding_uv(bind, params, txmp_name=name) if bind is not None else None
+            _binding_uv(
+                bind, params, txmp_name=name, shaderbin_sha256=sha
+            )
+            if bind is not None
+            else None
         )
         consumed = (h & 0xFFFFFFFF) in consumed_hashes
         decision = decisions_by_hash.get(h & 0xFFFFFFFF)

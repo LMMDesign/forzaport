@@ -198,7 +198,9 @@ def _uv_expr_for_slot(
     reuse one UV expression object via ``uv_cache`` (IR structural sharing).
     Returns (expr, reject_reason).
     """
-    uv_choice = resolve_uv_choice_texcoord(params)
+    uv_choice = resolve_uv_choice_texcoord(
+        params, shaderbin_sha256=CAR_STANDARD_SHADERBIN_SHA256
+    )
     texcoord = int(str(slot.texcoord).replace("TEXCOORD", "") or "0")
     base = _mesh_uv(
         texcoord,
@@ -614,6 +616,8 @@ def evaluate_car_standard(
 
     opacity = None
     shading_attenuation = None
+    alpha_semantics = None
+    blender_alpha_plan = None
     if cap.alpha_map is not None:
         # Opacity channel uses DXIL/HLSL .x labeling (resolver/legacy graph plans).
         alpha_ch = (cap.alpha_map.channel or "x").lower()
@@ -637,7 +641,11 @@ def evaluate_car_standard(
             evidence=_pd(f"Alpha.{alpha_ch} shading factor"),
         )
         # DXIL: product = Alpha.r * BaseColorAlpha.a (exact SHA alpha contract).
-        from .alpha import evaluate_car_standard_alpha
+        from .alpha import (
+            ShaderIdentityView,
+            SourceVisibilitySemantic,
+            evaluate_alpha_semantics,
+        )
 
         atten = alpha_r
         if (
@@ -670,7 +678,7 @@ def evaluate_car_standard(
                     "(game-file alpha contract / DXIL)"
                 ),
             )
-        # Saturate(product) as in DXIL %2467.
+        # Saturate(product) as in DXIL — arithmetic only (not CLIP encoding).
         atten = Clamp(
             source=atten,
             lo=0.0,
@@ -679,19 +687,27 @@ def evaluate_car_standard(
         )
 
         transparency = _bool(params, SPN.AlphaTransparencyBool)
-        sem = evaluate_car_standard_alpha(
+        sem = evaluate_alpha_semantics(
+            ShaderIdentityView(
+                shader_name="car_standard",
+                shaderbin_sha256=CAR_STANDARD_SHADERBIN_SHA256,
+                permutation=CAR_STANDARD_PERMUTATION,
+            ),
+            CAR_STANDARD_PERMUTATION,
+            params,
+            None,
+            authored_mask_expression=atten,
             alpha_transparency=transparency,
-            shaderbin_sha256=CAR_STANDARD_SHADERBIN_SHA256,
         )
         evidence.append(
             PD(
                 kind="alpha_contract",
                 detail=(
-                    f"classification={sem.classification.value} "
-                    f"source_visibility={sem.source_visibility_semantic} "
-                    f"blender={sem.blender_translation}"
+                    f"source={sem.source_visibility.value} "
+                    f"branch={sem.branch_key} "
+                    f"blender={sem.blender_plan.render_mode}"
                 ),
-                source="materials.alpha",
+                source="materials.alpha.registry",
             )
         )
         for u in sem.unresolved:
@@ -699,7 +715,13 @@ def evaluate_car_standard(
                 PD(kind="alpha_unresolved", detail=u, source="materials.alpha")
             )
 
-        if sem.surface_visibility == "OPAQUE":
+        alpha_semantics = sem.alpha_ir
+        blender_alpha_plan = sem.blender_plan
+
+        if sem.source_visibility in (
+            SourceVisibilitySemantic.PROVEN_OPAQUE,
+            SourceVisibilitySemantic.PROVEN_SHADING_ONLY_MASK,
+        ):
             evidence.append(
                 PD(
                     kind="shading_attenuation",
@@ -715,34 +737,21 @@ def evaluate_car_standard(
                 ),
             )
             opacity = None
-        elif sem.surface_visibility == "CLIP":
+        elif sem.source_visibility is SourceVisibilitySemantic.PROVEN_MASKED_VISIBILITY:
             evidence.append(
                 PD(
-                    kind="alpha_texture_visibility_mask",
+                    kind="alpha_masked_visibility",
                     detail=(
-                        "source: TEXTURE_VISIBILITY_MASK; "
-                        f"blender={sem.blender_translation} "
-                        f"thr={sem.blender_threshold} "
-                        f"({sem.threshold_provenance})"
+                        f"source MASKED; blender_plan={sem.blender_plan.render_mode} "
+                        f"thr={sem.blender_plan.alpha_threshold} "
+                        f"({sem.blender_plan.threshold_status.value})"
                     ),
                     source="materials.eval_car_standard",
                 )
             )
+            # Authored mask expression only — threshold lives on BlenderAlphaPlan.
             opacity = atten
-            thr = float(
-                sem.blender_threshold if sem.blender_threshold is not None else 0.5
-            )
-            opacity = Clamp(
-                source=opacity,
-                lo=thr,
-                hi=1.0,
-                evidence=_pd(
-                    f"blender {sem.blender_translation} threshold={thr} "
-                    "(not exact Forza FF)"
-                ),
-            )
         else:
-            # UNRESOLVED: keep bindings for diagnostics; do not invent Principled Alpha.
             opacity = None
             shading_attenuation = None
             if transparency is None and cap.alpha_map is not None:
@@ -764,6 +773,8 @@ def evaluate_car_standard(
         ambient_occlusion=ao,
         opacity=opacity,
         shading_attenuation=shading_attenuation,
+        alpha_semantics=alpha_semantics,
+        blender_alpha_plan=blender_alpha_plan,
         evidence=tuple(evidence),
         rejection_reasons=(),
     )

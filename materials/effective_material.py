@@ -270,6 +270,18 @@ def canonicalize_effective_ir(ir: ForzaMaterialIR) -> dict[str, Any]:
             if ir.shading_attenuation is not None
             else None
         ),
+        "alpha_semantics": (
+            ir.alpha_semantics.to_fingerprint_dict()
+            if ir.alpha_semantics is not None
+            and hasattr(ir.alpha_semantics, "to_fingerprint_dict")
+            else None
+        ),
+        "blender_alpha_plan": (
+            ir.blender_alpha_plan.to_fingerprint_dict()
+            if ir.blender_alpha_plan is not None
+            and hasattr(ir.blender_alpha_plan, "to_fingerprint_dict")
+            else None
+        ),
         "emissive": _canon_expr(ir.emissive),
         "clearcoat": _canon_expr(ir.clearcoat),
         "clearcoat_roughness": _canon_expr(ir.clearcoat_roughness),

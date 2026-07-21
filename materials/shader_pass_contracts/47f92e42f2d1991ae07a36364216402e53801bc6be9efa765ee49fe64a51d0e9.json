@@ -1,0 +1,56 @@
+{
+  "shader_name": "car_reflector",
+  "shaderbin_sha256": "47f92e42f2d1991ae07a36364216402e53801bc6be9efa765ee49fe64a51d0e9",
+  "schema_notes": "Declared TXMP Alpha@t16; absent from CarLightScenario samples.",
+  "relevant_passes": [
+    {
+      "scenario": "CarLightScenario",
+      "variant": "",
+      "archive_member": "car_reflectorCarLightScenario.pcdxil.pso",
+      "stage": "ps",
+      "blender_relevance": "MAIN_SURFACE_SHADING",
+      "reason": "Primary raster lighting.",
+      "import_sample_sites": []
+    },
+    {
+      "scenario": "SimpleCarLightScenario",
+      "variant": "",
+      "archive_member": "car_reflectorSimpleCarLightScenario.pcdxil.pso",
+      "stage": "ps",
+      "blender_relevance": "VISIBILITY",
+      "reason": "Alpha t16 sampled only on SimpleCar / shadow / debug visibility passes.",
+      "import_sample_sites": [
+        {
+          "texture_register": 16,
+          "sampler_register": 1,
+          "expected_comps": [0],
+          "uv_expression": "TEXCOORD0",
+          "expected_uv_expression": "TEXCOORD0",
+          "uv_branch_status": "PROVEN_UNIQUE",
+          "blender_relevance": "SURFACE_VISIBILITY",
+          "declared_txmp_name": "Alpha",
+          "declared_txmp_hash": "0x698CA64F",
+          "semantic_role": "alpha_mask",
+          "final_use": "SV_Target.a / discard",
+          "active_branch": "SimpleCarLightScenario",
+          "mati_provenance": "TXMP Alpha declared; instance binds when present",
+          "blender_import": true,
+          "evidence": [
+            "DXIL: SimpleCarLightScenario sample# t16.r coords=TEXCOORD0.xy feeds alpha/discard",
+            "Also present on ShadowDepth* (SHADOW_VISIBILITY) — not imported as surface maps"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": "CarShadowDepthLightScenario",
+      "variant": "",
+      "archive_member": "car_reflectorCarShadowDepthLightScenario.pcdxil.pso",
+      "stage": "ps",
+      "blender_relevance": "SHADOW_VISIBILITY",
+      "reason": "Also samples Alpha t16 for shadow casters; not a Blender surface input.",
+      "import_sample_sites": []
+    }
+  ],
+  "unresolved": []
+}

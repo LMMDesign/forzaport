@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "shader_name": "car_standard_emissive",
+  "shaderbin_sha256": "8d4ef07a59378e6862a1e9318b8b247100e7fc5e05954a8fdbe6ae6ea2a57178",
+  "status": "APPROVED_PARTIAL",
+  "schema_notes": "Declared TXMP Alpha@t16. CarLightScenario omits Alpha; SimpleCarLight samples it.",
+  "relevant_passes": [
+    {
+      "scenario": "CarLightScenario",
+      "variant": "",
+      "archive_member": "car_standard_emissiveCarLightScenario.pcdxil.pso",
+      "stage": "ps",
+      "blender_relevance": "MAIN_SURFACE_SHADING",
+      "reason": "Primary lighting; Alpha t16 not sampled.",
+      "import_sample_sites": []
+    },
+    {
+      "scenario": "SimpleCarLightScenario",
+      "variant": "",
+      "archive_member": "car_standard_emissiveSimpleCarLightScenario.pcdxil.pso",
+      "stage": "ps",
+      "blender_relevance": "SURFACE_VISIBILITY",
+      "reason": "Alpha t16 visibility with proven UVChoice branch.",
+      "import_sample_sites": [
+        {
+          "sample_site_id": "emissive|SimpleCarLight|t16|alpha",
+          "texture_register": 16,
+          "sampler_register": 1,
+          "expected_comps": [0],
+          "uv_expression": {
+            "kind": "Select",
+            "predicate": {
+              "param_hash": "0x402B8ED0",
+              "param_name": "UVChoice_OnCh1_OffCh2",
+              "true_when": "nonzero",
+              "cb_slot": "c13.0"
+            },
+            "true": "TEXCOORD0",
+            "false": "TEXCOORD1"
+          },
+          "uv_branch_status": "PROVEN_SWITCH",
+          "declared_txmp_name": "Alpha",
+          "declared_txmp_hash": "0x698CA64F",
+          "semantic_role": "alpha_mask",
+          "final_use": "SV_Target.a / discard",
+          "active_branch": "SimpleCarLightScenario + UVChoice MatI",
+          "mati_provenance": "TXMP Alpha; UVChoice_OnCh1_OffCh2 independently proven on this SHA",
+          "blender_import": true,
+          "blender_relevance": "SURFACE_VISIBILITY",
+          "evidence": [
+            "DXIL: %118=icmp eq UVChoice,0; phi %121/%122 TEXCOORD1 vs TEXCOORD0",
+            "Polarity matches OnCh1_OffCh2; exact SHA 8d4ef07a… only",
+            "Feeds Alpha t16 sample %530 coords %526/%527"
+          ]
+        }
+      ]
+    }
+  ],
+  "unresolved": []
+}

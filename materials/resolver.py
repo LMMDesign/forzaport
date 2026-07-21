@@ -30,6 +30,7 @@ from .model import (
 from .name_hashes import MaterialNameError, require_name
 from .registry import params_have_glass_scalars, params_have_paint_scalars
 from .shader_bindings import extract_bindings, resolve_binding_uv
+from .pass_contracts import PRIMARY_RASTER_PASS
 from .txmp_semantics import semantics_for_txmp_hash
 
 _ADDR = {0: "REPEAT", 1: "REPEAT", 2: "MIRROR", 3: "EXTEND", 4: "CLIP"}
@@ -56,12 +57,23 @@ def _path_exists(path: str, resolver) -> bool:
     return bool(resolved and os.path.isfile(resolved))
 
 
-def binding_uv(bind, params: dict | None = None, *, txmp_name: str | None = None):
-    """Return proven TEXCOORD index, or None when multi-UV lacks UVChoice."""
+def binding_uv(
+    bind,
+    params: dict | None = None,
+    *,
+    txmp_name: str | None = None,
+    shaderbin_sha256: str | None = None,
+):
+    """Return proven TEXCOORD index, or None when multi-UV lacks SHA UVChoice."""
     if bind is None:
         return None
     if params is not None:
-        uv = resolve_binding_uv(bind, params, txmp_name=txmp_name)
+        uv = resolve_binding_uv(
+            bind,
+            params,
+            txmp_name=txmp_name,
+            shaderbin_sha256=shaderbin_sha256,
+        )
         if uv is not None:
             return int(uv)
     if bind.uv_semantic is not None:
@@ -317,6 +329,11 @@ class MaterialCapabilityResolver:
                 failure_exception=fail,
             )
 
+        shaderbin_sha = str(
+            (getattr(bindings, "source_hashes", None) or {}).get("shaderbin_sha256")
+            or ""
+        )
+
         errors: list[str] = []
         base_map = None
         weave_mask = None
@@ -326,7 +343,9 @@ class MaterialCapabilityResolver:
         pending_alpha = None
         consumed: set[int] = set()
 
-        uv_choice = resolve_uv_choice_texcoord(params)
+        uv_choice = resolve_uv_choice_texcoord(
+            params, shaderbin_sha256=shaderbin_sha or None
+        )
         if uv_choice is not None:
             print(f"Forza material UV: {name}: {uv_choice[1].detail}", flush=True)
             observation_ev.append(uv_choice[1])
@@ -351,7 +370,12 @@ class MaterialCapabilityResolver:
                     errors.append(f"{param_name} t{treg}: texture missing: {path}")
                     continue
                 bind = bindings.textures.get(int(treg))
-                uv = binding_uv(bind, params, txmp_name=param_name)
+                uv = binding_uv(
+                    bind,
+                    params,
+                    txmp_name=param_name,
+                    shaderbin_sha256=shaderbin_sha or None,
+                )
                 if uv is None:
                     errors.append(
                         f"{param_name} t{treg}: no proven UV for weave composite"
@@ -399,14 +423,20 @@ class MaterialCapabilityResolver:
                 pending_alpha = (h, param_name, path, bind, int(treg))
                 continue
 
-            uv = binding_uv(bind, params, txmp_name=param_name)
+            uv = binding_uv(
+                bind,
+                params,
+                txmp_name=param_name,
+                shaderbin_sha256=shaderbin_sha or None,
+            )
             if uv is None:
                 all_uv = (
                     list(getattr(bind, "uv_semantics_all", None) or []) if bind else []
                 )
                 if bind is None:
                     errors.append(
-                        f"{param_name} t{treg}: not sampled in CarLightScenario DXIL"
+                        f"{param_name} t{treg}: not sampled in analyzed DXIL passes "
+                        f"({', '.join(getattr(bindings, 'passes_analyzed', None) or [PRIMARY_RASTER_PASS])})"
                     )
                 else:
                     errors.append(
@@ -463,13 +493,7 @@ class MaterialCapabilityResolver:
                 )
                 rmao_map = _prefer(rmao_map, candidate, is_override=h in overrides)
 
-        shaderbin_hash = ""
-        if bindings is not None:
-            shaderbin_hash = str(
-                (getattr(bindings, "source_hashes", None) or {}).get(
-                    "shaderbin_sha256", ""
-                )
-            )
+        shaderbin_hash = shaderbin_sha
 
         base_source, binding_decisions = decide_base_color_source(
             shader_name=shader_name,
@@ -502,7 +526,12 @@ class MaterialCapabilityResolver:
 
         if pending_alpha is not None:
             h, param_name, path, bind, treg = pending_alpha
-            uv = binding_uv(bind, params, txmp_name=param_name)
+            uv = binding_uv(
+                bind,
+                params,
+                txmp_name=param_name,
+                shaderbin_sha256=shaderbin_sha or None,
+            )
             evidence_details = [f"TXMP:0x{h & 0xFFFFFFFF:08X}:{param_name}"]
             use_test = _bool(params, SPN.UseAlphaTestBool)
             use_blend = _bool(params, SPN.UseAlphaBlendBool)

@@ -1,0 +1,64 @@
+{
+  "shader_name": "car_tinthack",
+  "shaderbin_sha256": "18a0c02486f35beec1a6974d108f26da52f5466923516bfe941f5d586b9dd888",
+  "schema_notes": "shaderbin.xml reports Textures count=0. t5/t6 appear only on CarDebugLightScenario — engine debug resources, not declared MatI TXMP.",
+  "relevant_passes": [
+    {
+      "scenario": "CarLightScenario",
+      "variant": "",
+      "archive_member": "car_tinthackCarLightScenario.pcdxil.pso",
+      "stage": "ps",
+      "blender_relevance": "MAIN_SURFACE_SHADING",
+      "reason": "Primary tint-hack lighting; does not sample t5/t6.",
+      "import_sample_sites": []
+    },
+    {
+      "scenario": "CarDebugLightScenario",
+      "variant": "",
+      "archive_member": "car_tinthackCarDebugLightScenario.pcdxil.pso",
+      "stage": "ps",
+      "blender_relevance": "DEBUG_ONLY",
+      "reason": "Only pass that samples t5 (RGB packed) and t6 (scalar/normal-like) via TEXCOORD4-derived coords.",
+      "import_sample_sites": [
+        {
+          "texture_register": 5,
+          "sampler_register": 0,
+          "expected_comps": [0, 1, 2],
+          "expected_uv_expression": "TEXCOORD4_DERIVED",
+          "uv_branch_status": "DEBUG_PASS_ONLY",
+          "declared_txmp_name": null,
+          "declared_txmp_hash": null,
+          "semantic_role": "debug_rgb_sample",
+          "final_use": "debug lighting path (VERTEX_DEBUG_LIGHTING signature present)",
+          "active_branch": "CarDebugLightScenario only",
+          "mati_provenance": "NOT DECLARED in shaderbin TXMP (Textures count=0)",
+          "blender_import": false,
+          "evidence": [
+            "Absent from CarLightScenario",
+            "No declared TXMP binding — ENGINE_INTERNAL/DEBUG",
+            "Must not become a Blender surface input"
+          ]
+        },
+        {
+          "texture_register": 6,
+          "sampler_register": 0,
+          "expected_comps": [0],
+          "expected_uv_expression": "TEXCOORD4_DERIVED",
+          "uv_branch_status": "DEBUG_PASS_ONLY",
+          "declared_txmp_name": null,
+          "declared_txmp_hash": null,
+          "semantic_role": "debug_scalar_or_normal_sample",
+          "final_use": "debug lighting path",
+          "active_branch": "CarDebugLightScenario only",
+          "mati_provenance": "NOT DECLARED in shaderbin TXMP",
+          "blender_import": false,
+          "evidence": [
+            "Classified normal_unpack_mad2_minus1 on R channel in debug PSO",
+            "DEBUG_ONLY — excluded from Blender graph"
+          ]
+        }
+      ]
+    }
+  ],
+  "unresolved": []
+}

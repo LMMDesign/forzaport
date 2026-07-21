@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "description": "Exact-SHA shader pass contracts. Semantics live in JSON; Python validates and evaluates.",
+  "contracts": [
+    {
+      "shader_name": "car_livery",
+      "shaderbin_sha256": "f1617a600d251bc8acb78abf939ce6b1b223ea23afee8f4fb592094c135051bb",
+      "status": "APPROVED_PARTIAL",
+      "file": "f1617a600d251bc8acb78abf939ce6b1b223ea23afee8f4fb592094c135051bb.json"
+    },
+    {
+      "shader_name": "car_reflector",
+      "shaderbin_sha256": "47f92e42f2d1991ae07a36364216402e53801bc6be9efa765ee49fe64a51d0e9",
+      "status": "APPROVED_PARTIAL",
+      "file": "47f92e42f2d1991ae07a36364216402e53801bc6be9efa765ee49fe64a51d0e9.json"
+    },
+    {
+      "shader_name": "car_standard_emissive",
+      "shaderbin_sha256": "8d4ef07a59378e6862a1e9318b8b247100e7fc5e05954a8fdbe6ae6ea2a57178",
+      "status": "APPROVED_PARTIAL",
+      "file": "8d4ef07a59378e6862a1e9318b8b247100e7fc5e05954a8fdbe6ae6ea2a57178.json"
+    },
+    {
+      "shader_name": "car_tinthack",
+      "shaderbin_sha256": "18a0c02486f35beec1a6974d108f26da52f5466923516bfe941f5d586b9dd888",
+      "status": "APPROVED_DEBUG_EXCLUSION",
+      "file": "18a0c02486f35beec1a6974d108f26da52f5466923516bfe941f5d586b9dd888.json"
+    },
+    {
+      "shader_name": "retro_licenseplate_atlas",
+      "shaderbin_sha256": "d602d66d6c095568fdec20059f3f00f9cb3c3d53fdfa99acc50049d2330a957a",
+      "status": "APPROVED_PARTIAL",
+      "file": "d602d66d6c095568fdec20059f3f00f9cb3c3d53fdfa99acc50049d2330a957a.json"
+    },
+    {
+      "shader_name": "car_tires_pg",
+      "shaderbin_sha256": "0b4530398a6cd3409819a3a9289532bf3c52d18689224121dcad986dd6870270",
+      "status": "CONTRACTED_NO_BLENDER_IMPORT",
+      "file": "0b4530398a6cd3409819a3a9289532bf3c52d18689224121dcad986dd6870270.json"
+    }
+  ]
+}

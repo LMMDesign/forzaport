@@ -53,6 +53,9 @@ class CleanPipelineTests(unittest.TestCase):
         from io_import_forza_carbin.materials.capabilities import (
             UV_CHOICE_ON_CH1_OFF_CH2,
         )
+        from io_import_forza_carbin.materials.uv.uv_choice_contracts import (
+            CAR_STANDARD_SHADERBIN_SHA256,
+        )
 
         binding = SimpleNamespace(
             uv_semantic=None,
@@ -62,10 +65,26 @@ class CleanPipelineTests(unittest.TestCase):
         on = {UV_CHOICE_ON_CH1_OFF_CH2: _param(3, True)}
         off = {UV_CHOICE_ON_CH1_OFF_CH2: _param(3, False)}
         self.assertEqual(
-            _binding_uv(binding, on, txmp_name="BaseColorAlpha"), 0
+            _binding_uv(
+                binding,
+                on,
+                txmp_name="BaseColorAlpha",
+                shaderbin_sha256=CAR_STANDARD_SHADERBIN_SHA256,
+            ),
+            0,
         )
         self.assertEqual(
-            _binding_uv(binding, off, txmp_name="BaseColorAlpha"), 1
+            _binding_uv(
+                binding,
+                off,
+                txmp_name="BaseColorAlpha",
+                shaderbin_sha256=CAR_STANDARD_SHADERBIN_SHA256,
+            ),
+            1,
+        )
+        # Without SHA, multi-UV stays unresolved (no cross-family reuse).
+        self.assertIsNone(
+            _binding_uv(binding, on, txmp_name="BaseColorAlpha")
         )
 
     def test_authored_alpha_modes(self):

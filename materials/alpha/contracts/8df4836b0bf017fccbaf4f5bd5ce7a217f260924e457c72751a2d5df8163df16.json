@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "contract_id": "car_standard.alpha.v3",
+  "shader_family": "car_standard",
+  "shader_sha256": "8df4836b0bf017fccbaf4f5bd5ce7a217f260924e457c72751a2d5df8163df16",
+  "shader_archive": "media/cars/_library/shaders/car_standard.zip",
+  "status": "CONTRACT_PROVEN",
+  "permutations": ["CarLightScenario"],
+  "authored_masks": [
+    {
+      "mask_id": "authored_mask",
+      "equation": "saturate(Alpha.r * BaseColorAlpha.a)",
+      "operations": ["multiply", "saturate"],
+      "inputs": [
+        {"binding": "Alpha", "treg": 16, "component": "r", "name_hash": "0x698CA64F"},
+        {"binding": "BaseColorAlpha", "treg": 17, "component": "a", "name_hash": "0x85E937A9"}
+      ],
+      "dxil_ssa_ids": ["%2020", "%2467", "%120", "%892"],
+      "evidence": [
+        "dxil:CarLightScenario product %2020 saturate %2467",
+        "same product form across audited passes"
+      ]
+    }
+  ],
+  "sample_sites": [
+    {
+      "sample_site_id": "car_standard|t16|Alpha.r",
+      "texture_register": 16,
+      "sampler_register": 1,
+      "binding_name_hash": "0x698CA64F",
+      "component": "r",
+      "channel_classification": ["AUTHORED_VISIBILITY_MASK_INPUT", "SHADING_ATTENUATION"],
+      "dxil_instruction_ids": ["%2018", "%118", "%890"]
+    },
+    {
+      "sample_site_id": "car_standard|t17|BaseColorAlpha.a",
+      "texture_register": 17,
+      "sampler_register": 1,
+      "binding_name_hash": "0x85E937A9",
+      "component": "a",
+      "channel_classification": ["AUTHORED_VISIBILITY_MASK_INPUT", "SHADING_ATTENUATION"],
+      "dxil_instruction_ids": ["%263", "%98", "%202"]
+    }
+  ],
+  "switches": [
+    {
+      "name": "AlphaTransparencyBool",
+      "name_hash": "0x5D3E6F2D",
+      "type": "bool",
+      "cb_register": 32,
+      "cb_component": "y",
+      "absent_policy": "UNRESOLVED_FAIL_CLOSED"
+    }
+  ],
+  "branches": {
+    "AlphaTransparency=false": {
+      "source_visibility": "PROVEN_OPAQUE",
+      "secondary": "PROVEN_SHADING_ONLY_MASK",
+      "main_visibility": {
+        "semantic": "PROVEN_OPAQUE",
+        "expression": "Constant(1.0)"
+      },
+      "shading_attenuation": {
+        "equation": "saturate(Alpha.r * BaseColorAlpha.a)",
+        "expression_ref": "authored_mask"
+      },
+      "blender": {
+        "render_mode": "OPAQUE",
+        "threshold_status": "UNUSED",
+        "apply_shading_attenuation_to_base_color": true,
+        "approximation_reason": "BaseColor×attenuation — not exact Forza BRDF"
+      },
+      "evidence": [
+        "cutout passes force effective coverage 1.0",
+        "CarLightScenario uses ungated product on selected lighting RGB"
+      ]
+    },
+    "AlphaTransparency=true": {
+      "source_visibility": "PROVEN_MASKED_VISIBILITY",
+      "main_visibility": {
+        "semantic": "PROVEN_MASKED_VISIBILITY",
+        "expression_ref": "authored_mask",
+        "source_threshold": 0.5,
+        "source_threshold_provenance": "ShadowDepth discard 0.5 (SOURCE_PASS_DERIVED); SimpleCar ~1e-7; F++ may write SV_Target0.a; fixed-function unresolved — Blender CLIP is BACKEND_APPROXIMATION"
+      },
+      "blender": {
+        "render_mode": "CLIP",
+        "alpha_threshold": 0.5,
+        "threshold_status": "BACKEND_APPROXIMATION",
+        "approximation_reason": "CLIP@0.5 from ShadowDepth; not proven visible-pass FF alpha-test"
+      },
+      "evidence": [
+        "authored_mask participates in discard / IgnoreHit / output-alpha paths"
+      ]
+    }
+  },
+  "rejected_branches": {
+    "AlphaTransparency=absent": {
+      "source_visibility": "REJECTED_UNSUPPORTED_BRANCH",
+      "reason": "absent must not be assumed false; refuse has_alpha heuristic"
+    }
+  },
+  "fixed_function_status": "UNRESOLVED_NOT_IN_PSO_BLOB",
+  "unresolved": [
+    "fixed_function_blend_depth_stencil_a2c",
+    "deferred_consumer_of_SV_Target0.rgb",
+    "exact_visible_pass_alpha_test_threshold"
+  ],
+  "evidence": [
+    "reports/.../2026-07-21_grille-coverage_alpha-pso/",
+    "materials/alpha/dxil_sites.py"
+  ]
+}

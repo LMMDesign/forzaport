@@ -1,11 +1,12 @@
 """Live DXIL binding extraction for material import (fail closed).
 
-Disassembles the exact ``{shader}CarLightScenario.pcdxil.pso`` with dxc and
-recovers per-texture UV, sampler register, component liveness, opacity/gate
-evidence, and tiling CB hashes. Principled role and channel packing are
-assigned from TXMP NameHash strings in ``txmp_semantics`` — DXIL must not
-invent RoughMetalAO swizzles. Results are cached under zipfs
-``shader_descriptors/`` with content hashes and instruction provenance.
+Disassembles per-family ``{shader}CarLightScenario.pcdxil.pso`` (one raster
+pass — not a complete material schema) plus any SHA-keyed additional passes
+from ``pass_contracts``. Recovers per-pass sample sites: UV, sampler,
+components, opacity/gate evidence, tiling CB hashes.
+
+Static pass analysis is cached by exact shaderbin SHA + PSO SHA + pass.
+Instance evaluation (UVChoice, MatI bools) is never cached by shader name alone.
 """
 
 from __future__ import annotations
@@ -21,15 +22,14 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 from ..parsing.disk_cache import zipfs_cache_dir
+from .pass_contracts import (
+    PRIMARY_RASTER_PASS,
+    PassMergeSpec,
+    additional_passes_for_sha,
+)
+from .pass_identity import parse_pass_identity, variant_from_member, stage_from_member
 
-GENERATOR_VERSION = 5
-
-# When CarLightScenario does not sample Alpha, merge that treg from a DXIL-proven
-# secondary PSO only. Proven for car_livery: SimpleCarLightScenario samples Alpha
-# t16 at TEXCOORD0 / R and feeds SV_Target alpha (see local DXIL / PSO scans).
-PROVEN_ALPHA_SUPPLEMENT_PSO: dict[str, tuple[str, int]] = {
-    "car_livery": ("car_liverySimpleCarLightScenario.pcdxil.pso", 16),
-}
+GENERATOR_VERSION = 8
 
 _SIG_ROW = re.compile(r";\s+(\S+)\s+(\d+)\s+\S.*?\s+(\d+)\s+\S+\s+\S+")
 _LOADIN = re.compile(
@@ -99,6 +99,31 @@ class ShaderBindings:
     source_hashes: dict[str, str] = field(default_factory=dict)
     pso_member: str = ""
     evidence: list[str] = field(default_factory=list)
+    pass_name: str = PRIMARY_RASTER_PASS
+    passes_analyzed: list[str] = field(default_factory=list)
+
+
+@dataclass
+class StaticShaderPassAnalysis:
+    """Instance-independent DXIL facts for one PSO pass."""
+
+    shader_name: str
+    pass_name: str
+    pso_member: str
+    shaderbin_sha256: str
+    pso_sha256: str
+    textures: dict[int, TextureBinding] = field(default_factory=dict)
+    evidence: list[str] = field(default_factory=list)
+    generator_version: int = GENERATOR_VERSION
+
+
+@dataclass
+class EvaluatedMaterialInstanceBindings:
+    """Instance-evaluated bindings (UVChoice / MatI) over static pass analysis."""
+
+    static: StaticShaderPassAnalysis
+    bindings: ShaderBindings
+    shaderbin_sha256: str
 
 
 def _addon_dxc() -> str:
@@ -281,15 +306,12 @@ def _resolve_handles(ps_txt: str) -> tuple[dict[str, int], dict[str, int]]:
     return srv, smp
 
 
-def _cb_bool_loads(ps_txt: str, cbmp: dict[int, int], params: dict) -> dict[int, set[str]]:
-    """bool param hash -> SSA ids loaded from that cbuffer bool."""
+def _cb_bool_loads(ps_txt: str, cbmp: dict[int, int]) -> dict[int, set[str]]:
+    """CBMP hash -> SSA ids loaded from that cbuffer slot (static; no MatI types)."""
     defs, _ = _build_ssa(ps_txt.splitlines())
-    slot_to_hash = {}
+    slot_to_hashes: dict[tuple[int, int], list[int]] = defaultdict(list)
     for h, off in cbmp.items():
-        p = params.get(h)
-        if p is None or getattr(p, "type", None) != 3:
-            continue
-        slot_to_hash[(off // 16, (off % 16) // 4)] = h
+        slot_to_hashes[(off // 16, (off % 16) // 4)].append(int(h))
     loads: dict[int, set[str]] = defaultdict(set)
     for rid, rhs in defs.items():
         em = re.search(r"extractvalue %dx\.types\.CBufRet\.\w+ %(\d+), (\d+)", rhs)
@@ -300,8 +322,8 @@ def _cb_bool_loads(ps_txt: str, cbmp: dict[int, int], params: dict) -> dict[int,
         if not cm:
             continue
         slot = (int(cm.group(1)), int(em.group(2)))
-        if slot in slot_to_hash:
-            loads[slot_to_hash[slot]].add(rid)
+        for h in slot_to_hashes.get(slot, ()):
+            loads[h].add(rid)
     return loads
 
 
@@ -519,10 +541,12 @@ def _resolve_uv_semantic(
     gate_bool_hashes: list[int],
     params: dict,
     txmp_name: str | None = None,
+    shaderbin_sha256: str | None = None,
 ) -> tuple[int | None, list[str]]:
-    """Pick one mesh TEXCOORD from DXIL candidates + proven MatI UV policy.
+    """Pick one mesh TEXCOORD from DXIL candidates + SHA-keyed UVChoice.
 
-    Multi-UV without UVChoice stays unresolved — never ``min(uvs)`` (MAT006).
+    Multi-UV without a proven SHA UVChoice contract stays unresolved —
+    never ``min(uvs)`` (MAT006).
     """
     del gate_bool_hashes  # sample-gate lists do not carry UVChoice
     evidence: list[str] = []
@@ -532,13 +556,15 @@ def _resolve_uv_semantic(
     if len(uvs) == 1:
         return next(iter(uvs)), evidence
 
-    from .capabilities import PROVEN_UV_POLICIES, resolve_uv_choice_texcoord
+    from .uv.uv_choice_contracts import UV_CHOICE_BY_SHA, resolve_uv_choice_texcoord
 
-    choice = resolve_uv_choice_texcoord(params)
-    if choice is not None:
+    choice = resolve_uv_choice_texcoord(params, shaderbin_sha256=shaderbin_sha256)
+    if choice is not None and shaderbin_sha256:
         texcoord, prov = choice
-        policy = PROVEN_UV_POLICIES[0]
-        if txmp_name is None or txmp_name in policy.applies_to_txmp:
+        policy = UV_CHOICE_BY_SHA.get(shaderbin_sha256)
+        if policy is not None and (
+            txmp_name is None or txmp_name in policy.applies_to_txmp
+        ):
             if texcoord in uvs:
                 evidence.append(prov.detail)
                 return texcoord, evidence
@@ -551,15 +577,14 @@ def _resolve_uv_semantic(
     return None, evidence
 
 
-def _analyze_ps(
-    ps_txt: str, cbmp: dict[int, int], params: dict
-) -> dict[int, TextureBinding]:
+def _analyze_ps(ps_txt: str, cbmp: dict[int, int]) -> dict[int, TextureBinding]:
+    """Static DXIL analysis — CBMP layout only; no MatI instance values."""
     lines = ps_txt.splitlines()
     sig = _parse_signature(lines, "; Input signature:")
     defs, loadin = _build_ssa(lines)
     uses = _ssa_uses(defs)
     srv, smp = _resolve_handles(ps_txt)
-    bool_loads = _cb_bool_loads(ps_txt, cbmp, params)
+    bool_loads = _cb_bool_loads(ps_txt, cbmp)
 
     extracted: dict[str, set[int]] = defaultdict(set)
     for m in _EXTRACT_COMP.finditer(ps_txt):
@@ -620,9 +645,7 @@ def _analyze_ps(
                     if byte_off == off or (
                         byte_off // 16 == row and (byte_off % 16) // 4 == comp
                     ):
-                        p = params.get(h)
-                        if p is not None and getattr(p, "type", None) in (2, 11):
-                            tiling_hashes.add(h)
+                        tiling_hashes.add(h)
         bind.tiling_cb_hashes = sorted(tiling_hashes)
 
     if not info:
@@ -631,7 +654,7 @@ def _analyze_ps(
     for treg, bind in info.items():
         uvs = uvs_by_treg.get(treg, set())
         bind.uv_semantics_all = sorted(uvs)
-        # Tentative UV from structure alone; builder re-resolves with this material's bools.
+        # Tentative UV from structure alone; builder re-resolves with SHA UVChoice.
         if len(uvs) == 1:
             bind.uv_semantic = next(iter(uvs))
         elif not uvs:
@@ -661,8 +684,9 @@ def resolve_binding_uv(
     params: dict,
     *,
     txmp_name: str | None = None,
+    shaderbin_sha256: str | None = None,
 ) -> int | None:
-    """Per-material UV pick: unique DXIL semantic, else proven UVChoice."""
+    """Per-material UV pick: unique DXIL semantic, else SHA-keyed UVChoice."""
     uvs = set(bind.uv_semantics_all or [])
     if bind.uv_semantic is not None:
         uvs.add(int(bind.uv_semantic))
@@ -675,6 +699,7 @@ def resolve_binding_uv(
         gate_bool_hashes=list(bind.gate_bool_hashes or []),
         params=params,
         txmp_name=txmp_name,
+        shaderbin_sha256=shaderbin_sha256,
     )
     return uv
 
@@ -696,22 +721,21 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _load_cache(key: str) -> ShaderBindings | None:
+def _load_cache(key: str) -> StaticShaderPassAnalysis | None:
     path = os.path.join(_cache_dir(), f"{key}.json")
     if not os.path.isfile(path):
         return None
     with open(path, encoding="utf-8") as f:
         raw = json.load(f)
-    if not raw.get("source_hashes") or raw.get("generator_version") != GENERATOR_VERSION:
+    if raw.get("generator_version") != GENERATOR_VERSION:
         return None
-    b = ShaderBindings(
-        shader_name=raw["shader_name"],
-        source_hashes=dict(raw.get("source_hashes") or {}),
-        pso_member=raw.get("pso_member") or "",
-        evidence=list(raw.get("evidence") or []),
-    )
+    if raw.get("kind") not in (None, "static_pass"):
+        # Reject legacy instance-blended caches (generator v5 and earlier).
+        if raw.get("kind") != "static_pass" and "pass_name" not in raw:
+            return None
+    textures: dict[int, TextureBinding] = {}
     for treg_s, row in (raw.get("textures") or {}).items():
-        b.textures[int(treg_s)] = TextureBinding(
+        textures[int(treg_s)] = TextureBinding(
             treg=int(treg_s),
             uv_semantic=row.get("uv_semantic"),
             uv_semantics_all=list(row.get("uv_semantics_all") or []),
@@ -725,18 +749,33 @@ def _load_cache(key: str) -> ShaderBindings | None:
             tiling_cb_hashes=list(row.get("tiling_cb_hashes") or []),
             evidence=list(row.get("evidence") or []),
         )
-    return b
+    return StaticShaderPassAnalysis(
+        shader_name=raw["shader_name"],
+        pass_name=raw.get("pass_name") or PRIMARY_RASTER_PASS,
+        pso_member=raw.get("pso_member") or "",
+        shaderbin_sha256=str((raw.get("source_hashes") or {}).get("shaderbin_sha256") or ""),
+        pso_sha256=str((raw.get("source_hashes") or {}).get("pso_sha256") or ""),
+        textures=textures,
+        evidence=list(raw.get("evidence") or []),
+        generator_version=int(raw.get("generator_version") or 0),
+    )
 
 
-def _save_cache(key: str, bindings: ShaderBindings) -> None:
+def _save_cache(key: str, analysis: StaticShaderPassAnalysis) -> None:
     path = os.path.join(_cache_dir(), f"{key}.json")
     raw = {
+        "kind": "static_pass",
         "generator_version": GENERATOR_VERSION,
-        "generated_from": "dxil_carlightscenario_pso",
-        "source_hashes": bindings.source_hashes,
-        "shader_name": bindings.shader_name,
-        "pso_member": bindings.pso_member,
-        "evidence": bindings.evidence,
+        "generated_from": "dxil_pass_pso",
+        "pass_name": analysis.pass_name,
+        "source_hashes": {
+            "shaderbin_sha256": analysis.shaderbin_sha256,
+            "pso_sha256": analysis.pso_sha256,
+            "descriptor_key": key,
+        },
+        "shader_name": analysis.shader_name,
+        "pso_member": analysis.pso_member,
+        "evidence": analysis.evidence,
         "textures": {
             str(t): {
                 "uv_semantic": b.uv_semantic,
@@ -751,7 +790,7 @@ def _save_cache(key: str, bindings: ShaderBindings) -> None:
                 "tiling_cb_hashes": b.tiling_cb_hashes,
                 "evidence": b.evidence,
             }
-            for t, b in bindings.textures.items()
+            for t, b in analysis.textures.items()
         },
     }
     with open(path, "w", encoding="utf-8") as f:
@@ -825,7 +864,10 @@ def _archive_candidates(media_root: str, shader_name: str, game_key: str | None)
 
 
 _ZIP_MEMBER_CACHE: dict[tuple[str, str, str], tuple[str, list[str]]] = {}
-_BINDINGS_MEM: dict[tuple[str, str, str], ShaderBindings] = {}
+# Static pass analysis only — never cache instance-evaluated bindings by shader name.
+_STATIC_PASS_MEM: dict[
+    tuple[str, str, str, str, int, str, str, str, str], StaticShaderPassAnalysis
+] = {}
 
 
 def _find_zip_and_members(
@@ -894,69 +936,175 @@ def _exact_carlight_pso(names: list[str], shader_name: str) -> str:
     """Require the exact raster CarLightScenario PSO (``_Standard`` technique).
 
     Archives may also ship DXR hit-group copies with the same basename; those are
-    not the mesh/raster technique used for car import.
+    not the mesh/raster technique used for car import. CarLightScenario is one
+    pass — additional passes come from ``pass_contracts`` by exact SHA.
     """
     return _exact_named_pso(names, f"{shader_name}CarLightScenario.pcdxil.pso")
 
 
-def _supplement_alpha_binding(
+def _static_mem_key(
     *,
-    textures: dict[int, TextureBinding],
-    zip_path: str,
-    names: list[str],
-    zf: zipfile.ZipFile,
-    shader_name: str,
-    cbmp: dict[int, int],
-    params: dict,
-    dxc: str,
-) -> tuple[bytes, str | None]:
-    """Merge Alpha treg from a proven secondary PSO when CarLightScenario omits it.
+    game_key: str,
+    media_root: str,
+    shaderbin_sha256: str,
+    pso_sha256: str,
+    pass_name: str,
+    archive_member: str,
+    variant: str,
+    stage: str,
+) -> tuple[str, str, str, str, int, str, str, str, str]:
+    return (
+        (game_key or "").lower(),
+        os.path.normcase(media_root),
+        shaderbin_sha256.lower(),
+        pso_sha256.lower(),
+        GENERATOR_VERSION,
+        pass_name,
+        archive_member.replace("\\", "/").lower(),
+        (variant or "").lower(),
+        (stage or "ps").lower(),
+    )
 
-    Returns (supplement_pso_bytes, member_path_or_None).
-    """
-    spec = PROVEN_ALPHA_SUPPLEMENT_PSO.get((shader_name or "").lower())
-    if spec is None:
-        return b"", None
-    basename, treg = spec
-    if treg in textures:
-        return b"", None
-    member = _exact_named_pso(names, basename)
-    raw = zf.read(member)
+
+def _clone_textures(src: dict[int, TextureBinding]) -> dict[int, TextureBinding]:
+    out: dict[int, TextureBinding] = {}
+    for treg, b in src.items():
+        out[treg] = TextureBinding(
+            treg=b.treg,
+            uv_semantic=b.uv_semantic,
+            uv_semantics_all=list(b.uv_semantics_all or []),
+            comps=list(b.comps or []),
+            sampler_reg=b.sampler_reg,
+            role=b.role,
+            channel_roles=dict(b.channel_roles or {}),
+            opacity_from_w=bool(b.opacity_from_w),
+            opacity_gate_hash=b.opacity_gate_hash,
+            gate_bool_hashes=list(b.gate_bool_hashes or []),
+            tiling_cb_hashes=list(b.tiling_cb_hashes or []),
+            evidence=list(b.evidence or []),
+        )
+    return out
+
+
+def _analyze_named_pass(
+    *,
+    media_root: str,
+    shader_name: str,
+    pass_name: str,
+    pso_member: str,
+    sb_bytes: bytes,
+    pso_bytes: bytes,
+    cbmp: dict[int, int],
+    dxc: str,
+    game_key: str,
+    zip_basename: str,
+) -> StaticShaderPassAnalysis:
+    shaderbin_sha = _sha256(sb_bytes)
+    pso_sha = _sha256(pso_bytes)
+    variant = variant_from_member(pso_member)
+    stage = stage_from_member(pso_member)
+    mem_key = _static_mem_key(
+        game_key=game_key or "",
+        media_root=media_root,
+        shaderbin_sha256=shaderbin_sha,
+        pso_sha256=pso_sha,
+        pass_name=pass_name,
+        archive_member=pso_member,
+        variant=variant,
+        stage=stage,
+    )
+    hit = _STATIC_PASS_MEM.get(mem_key)
+    if hit is not None:
+        return hit
+
+    disk_key = _content_key(
+        sb_bytes,
+        pso_bytes
+        + f"\0PASS:{pass_name}\0MEMBER:{pso_member}\0VAR:{variant}\0".encode(),
+    )
+    cached = _load_cache(disk_key)
+    if cached is not None and cached.pass_name == pass_name:
+        _STATIC_PASS_MEM[mem_key] = cached
+        return cached
+
     print(
-        f"Forza: DXIL Alpha supplement {shader_name} t{treg} via {basename}",
+        f"Forza: DXIL analyze {shader_name}/{variant or 'root'}/{pass_name} "
+        f"(static; cached after this)",
         flush=True,
     )
-    supp = _analyze_ps(_disasm(dxc, raw), cbmp, params)
-    bind = supp.get(treg)
-    if bind is None:
-        raise ShaderBindingError(
-            f"proven Alpha supplement PSO {basename} has no t{treg} sample "
-            f"(shader={shader_name!r})"
-        )
-    # Locked evidence from car_livery SimpleCarLightScenario probe — refuse drift.
-    if sorted(bind.uv_semantics_all or []) != [0]:
-        raise ShaderBindingError(
-            f"Alpha supplement t{treg} UV drift in {basename}: "
-            f"expected [0], got {bind.uv_semantics_all}"
-        )
-    if list(bind.comps or []) != [0]:
-        raise ShaderBindingError(
-            f"Alpha supplement t{treg} comps drift in {basename}: "
-            f"expected [0], got {bind.comps}"
-        )
-    bind.uv_semantic = 0
-    bind.role = "alpha"
-    bind.channel_roles["opacity"] = "x"
-    if "x_feeds_sv_target_alpha_or_discard" not in bind.evidence:
-        # Classifier should have set this; keep fail-visible if missing.
-        if not any("feeds_sv_target_alpha" in e for e in bind.evidence):
+    textures = _analyze_ps(_disasm(dxc, pso_bytes), cbmp)
+    identity = parse_pass_identity(
+        member=pso_member,
+        shader_name=shader_name,
+        shaderbin_sha256=shaderbin_sha,
+        pso_sha256=pso_sha,
+    )
+    analysis = StaticShaderPassAnalysis(
+        shader_name=shader_name,
+        pass_name=pass_name,
+        pso_member=pso_member,
+        shaderbin_sha256=shaderbin_sha,
+        pso_sha256=pso_sha,
+        textures=textures,
+        evidence=[
+            f"pso={pso_member}",
+            f"pass={pass_name}",
+            f"variant={variant or 'root'}",
+            f"stage={stage}",
+            f"identity={identity.as_key()}",
+            f"archive={zip_basename}",
+        ],
+    )
+    _save_cache(disk_key, analysis)
+    _STATIC_PASS_MEM[mem_key] = analysis
+    return analysis
+
+
+def _merge_pass_sites(
+    *,
+    textures: dict[int, TextureBinding],
+    primary: StaticShaderPassAnalysis,
+    secondary: StaticShaderPassAnalysis,
+    spec: PassMergeSpec,
+) -> None:
+    """Merge contracted tregs from secondary pass; refuse drift vs contract."""
+    for treg in spec.merge_texture_registers:
+        if treg in textures:
+            continue
+        src = secondary.textures.get(treg)
+        if src is None:
             raise ShaderBindingError(
-                f"Alpha supplement t{treg} in {basename} lacks SV_Target alpha evidence: "
-                f"{bind.evidence}"
+                f"pass contract {spec.pass_name} has no t{treg} sample "
+                f"(shader={primary.shader_name!r} sha={primary.shaderbin_sha256[:12]}…)"
             )
-    bind.evidence.append(f"alpha_supplement_pso={member}")
-    textures[treg] = bind
-    return raw, member
+        if spec.expected_uv_semantics is not None:
+            if tuple(src.uv_semantics_all or []) != tuple(spec.expected_uv_semantics):
+                raise ShaderBindingError(
+                    f"pass contract {spec.pass_name} t{treg} UV drift: "
+                    f"expected {list(spec.expected_uv_semantics)}, "
+                    f"got {src.uv_semantics_all}"
+                )
+        if spec.expected_comps is not None:
+            if tuple(src.comps or []) != tuple(spec.expected_comps):
+                raise ShaderBindingError(
+                    f"pass contract {spec.pass_name} t{treg} comps drift: "
+                    f"expected {list(spec.expected_comps)}, got {src.comps}"
+                )
+        bind = _clone_textures({treg: src})[treg]
+        if len(bind.uv_semantics_all or []) == 1:
+            bind.uv_semantic = int(bind.uv_semantics_all[0])
+        if spec.require_sv_target_alpha:
+            bind.role = "alpha"
+            bind.channel_roles["opacity"] = "x"
+            if not any("feeds_sv_target_alpha" in e for e in bind.evidence):
+                raise ShaderBindingError(
+                    f"pass contract {spec.pass_name} t{treg} lacks SV_Target alpha "
+                    f"evidence: {bind.evidence}"
+                )
+        bind.evidence.append(
+            f"merged_from_pass={spec.pass_name};{spec.evidence}"
+        )
+        textures[treg] = bind
 
 
 def extract_bindings(
@@ -967,16 +1115,18 @@ def extract_bindings(
     cbmp: dict[int, int],
     game_key: str | None = None,
 ) -> ShaderBindings:
-    """Extract UV/comps/role bindings for shader_name. Raises ShaderBindingError on failure."""
+    """Static CarLight analysis + exact-SHA sample-site contract evaluation.
+
+    Additional passes contribute contracted sample sites (not register unions).
+    Instance MatI values select UVChoice / variant; static PSO analysis stays
+    cached without MatI contamination.
+    """
+    from .sample_site_eval import evaluate_material_sample_sites
+
     if not shader_name:
         raise ShaderBindingError("shader_name is empty")
     if not media_root or not os.path.isdir(media_root):
         raise ShaderBindingError(f"media_root missing: {media_root!r}")
-
-    mem_key = (os.path.normcase(media_root), shader_name.lower(), (game_key or "").lower())
-    mem = _BINDINGS_MEM.get(mem_key)
-    if mem is not None:
-        return mem
 
     zip_path, names = _find_zip_and_members(media_root, shader_name, game_key=game_key)
     pso_member = _exact_carlight_pso(names, shader_name)
@@ -989,57 +1139,131 @@ def extract_bindings(
     if sb_member is None:
         raise ShaderBindingError(f"shaderbin member missing in {zip_path}")
 
+    dxc = _addon_dxc()
     with zipfile.ZipFile(zip_path, "r") as zf:
         sb_bytes = zf.read(sb_member)
         pso_bytes = zf.read(pso_member)
-        # Hash includes proven Alpha supplement PSO when applicable (cache bump).
-        supp_spec = PROVEN_ALPHA_SUPPLEMENT_PSO.get(shader_name.lower())
-        supp_preface = b""
-        if supp_spec is not None:
-            try:
-                supp_member_peek = _exact_named_pso(names, supp_spec[0])
-                supp_preface = zf.read(supp_member_peek)
-            except ShaderBindingError:
-                supp_preface = b""
-
-    key = _content_key(sb_bytes, pso_bytes + b"\0ALPHASUPP\0" + supp_preface)
-    cached = _load_cache(key)
-    if cached is not None:
-        _BINDINGS_MEM[mem_key] = cached
-        return cached
-
-    print(f"Forza: DXIL analyze {shader_name} (first use; cached after this)", flush=True)
-    dxc = _addon_dxc()
-    ps_txt = _disasm(dxc, pso_bytes)
-    textures = _analyze_ps(ps_txt, cbmp, params)
-    evidence = [f"pso={pso_member}", f"archive={os.path.basename(zip_path)}"]
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        _supp_bytes, supp_member = _supplement_alpha_binding(
-            textures=textures,
-            zip_path=zip_path,
-            names=names,
-            zf=zf,
+        primary = _analyze_named_pass(
+            media_root=media_root,
             shader_name=shader_name,
+            pass_name=PRIMARY_RASTER_PASS,
+            pso_member=pso_member,
+            sb_bytes=sb_bytes,
+            pso_bytes=pso_bytes,
             cbmp=cbmp,
-            params=params,
             dxc=dxc,
+            game_key=game_key or "",
+            zip_basename=os.path.basename(zip_path),
         )
-    if supp_member:
-        evidence.append(f"alpha_supplement_pso={supp_member}")
-    bindings = ShaderBindings(
+        textures = _clone_textures(primary.textures)
+        evidence = list(primary.evidence)
+        passes_analyzed = [primary.pass_name]
+        extra_pso_hashes: dict[str, str] = {}
+
+        evaluated = evaluate_material_sample_sites(
+            shaderbin_sha256=primary.shaderbin_sha256,
+            params=params,
+        )
+        if evaluated.variant.status == "REJECTED":
+            evidence.append(f"variant_rejected:{evaluated.variant.provenance}")
+        for reason in evaluated.rejection_reasons:
+            evidence.append(f"sample_site:{reason}")
+
+        # Merge PSOs for ACTIVE blender_import sample sites only (by scenario).
+        active_sites = [
+            s
+            for s in evaluated.sites
+            if s.blender_import and s.status == "ACTIVE"
+        ]
+        # Direct TEXCOORD visibility contracts may evaluate ACTIVE; also allow
+        # PassMergeSpec with unique expected UV when evaluation listed the site
+        # as blender_import with PROVEN_DIRECT (status ACTIVE).
+        for spec in additional_passes_for_sha(primary.shaderbin_sha256):
+            sites_for_pass = [s for s in active_sites if s.scenario == spec.pass_name]
+            if sites_for_pass:
+                active_regs = tuple(
+                    sorted({s.texture_register for s in sites_for_pass})
+                )
+            elif (
+                spec.expected_uv_semantics is not None
+                and len(spec.expected_uv_semantics) == 1
+            ):
+                # Unique-UV JSON contracts (livery/reflector) — import when
+                # evaluate did not mark UNRESOLVED for that scenario.
+                blocked = any(
+                    s.scenario == spec.pass_name
+                    and s.blender_import
+                    and s.status == "UNRESOLVED"
+                    for s in evaluated.sites
+                )
+                if blocked:
+                    continue
+                active_regs = spec.merge_texture_registers
+                sites_for_pass = []
+            else:
+                continue
+
+            member = _exact_named_pso(names, spec.pso_basename)
+            raw = zf.read(member)
+            secondary = _analyze_named_pass(
+                media_root=media_root,
+                shader_name=shader_name,
+                pass_name=spec.pass_name,
+                pso_member=member,
+                sb_bytes=sb_bytes,
+                pso_bytes=raw,
+                cbmp=cbmp,
+                dxc=dxc,
+                game_key=game_key or "",
+                zip_basename=os.path.basename(zip_path),
+            )
+            narrowed = PassMergeSpec(
+                pass_name=spec.pass_name,
+                pso_basename=spec.pso_basename,
+                merge_texture_registers=active_regs,
+                expected_uv_semantics=spec.expected_uv_semantics,
+                expected_comps=spec.expected_comps,
+                require_sv_target_alpha=spec.require_sv_target_alpha,
+                evidence=spec.evidence,
+                blender_relevance=spec.blender_relevance,
+                expected_uv_expression=spec.expected_uv_expression,
+            )
+            _merge_pass_sites(
+                textures=textures,
+                primary=primary,
+                secondary=secondary,
+                spec=narrowed,
+            )
+            for site in sites_for_pass:
+                if (
+                    site.resolved_texcoord is not None
+                    and site.texture_register in textures
+                ):
+                    bind = textures[site.texture_register]
+                    bind.uv_semantic = int(site.resolved_texcoord)
+                    bind.evidence.append(
+                        f"evaluated_sample_site={site.sample_site_id};"
+                        f"TEXCOORD{site.resolved_texcoord}"
+                    )
+            passes_analyzed.append(spec.pass_name)
+            evidence.append(f"sample_site_contract_pass={member}")
+            extra_pso_hashes[f"pso_sha256:{spec.pass_name}"] = secondary.pso_sha256
+
+    source_hashes = {
+        "shaderbin_sha256": primary.shaderbin_sha256,
+        "pso_sha256": primary.pso_sha256,
+        "primary_pass": primary.pass_name,
+        **extra_pso_hashes,
+    }
+    return ShaderBindings(
         shader_name=shader_name,
         textures=textures,
-        source_hashes={
-            "shaderbin_sha256": _sha256(sb_bytes),
-            "pso_sha256": _sha256(pso_bytes),
-            "descriptor_key": key,
-        },
+        source_hashes=source_hashes,
         pso_member=pso_member,
         evidence=evidence,
+        pass_name=primary.pass_name,
+        passes_analyzed=passes_analyzed,
     )
-    _save_cache(key, bindings)
-    _BINDINGS_MEM[mem_key] = bindings
-    return bindings
 
 
 def comps_str(comps: list[int]) -> str:

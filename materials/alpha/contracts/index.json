@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "baseline_addon_head": "53e9007d43cdc00ea6313bfacc8608a4d186daea",
+  "contracts": {
+    "8df4836b0bf017fccbaf4f5bd5ce7a217f260924e457c72751a2d5df8163df16": {
+      "path": "8df4836b0bf017fccbaf4f5bd5ce7a217f260924e457c72751a2d5df8163df16.json",
+      "family": "car_standard",
+      "status": "CONTRACT_PROVEN"
+    }
+  },
+  "policy": {
+    "unknown_sha": "fail_closed",
+    "unknown_schema": "fail_closed",
+    "no_family_named_evaluators_in_production": true,
+    "texture_stats_validation_only": true
+  }
+}

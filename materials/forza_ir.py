@@ -240,9 +240,15 @@ class ForzaMaterialIR:
     roughness: MaterialExpression | None = None
     metallic: MaterialExpression | None = None
     ambient_occlusion: MaterialExpression | None = None
+    # Deprecated dual field: prefer alpha_semantics.main_visibility.expression.
+    # Retained as the authored visibility/mask scalar expression only (no
+    # threshold Clamp encoding).
     opacity: MaterialExpression | None = None
     # Lighting attenuation (opaque); never auto-wires to Principled Alpha.
     shading_attenuation: ShadingAttenuation | None = None
+    # Explicit game-file alpha IR + Blender plan (Alpha Closure).
+    alpha_semantics: object | None = None  # AlphaSemanticsIR | None
+    blender_alpha_plan: object | None = None  # BlenderAlphaPlan | None
     emissive: MaterialExpression | None = None
     clearcoat: MaterialExpression | None = None
     clearcoat_roughness: MaterialExpression | None = None

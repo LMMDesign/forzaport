@@ -160,13 +160,25 @@ class MaterialDiagnosticsTests(unittest.TestCase):
             )
 
     def test_uv_choice_contract_true_ch1_false_ch2(self):
+        from io_import_forza_carbin.materials.uv.uv_choice_contracts import (
+            CAR_STANDARD_SHADERBIN_SHA256,
+        )
+
         missing = resolve_uv_choice_texcoord({})
         self.assertIsNone(missing)
+        # Without exact SHA, fail closed even when MatI bool is present.
+        self.assertIsNone(
+            resolve_uv_choice_texcoord(
+                {UV_CHOICE_ON_CH1_OFF_CH2: SimpleNamespace(type=3, value=True)}
+            )
+        )
         on = resolve_uv_choice_texcoord(
-            {UV_CHOICE_ON_CH1_OFF_CH2: SimpleNamespace(type=3, value=True)}
+            {UV_CHOICE_ON_CH1_OFF_CH2: SimpleNamespace(type=3, value=True)},
+            shaderbin_sha256=CAR_STANDARD_SHADERBIN_SHA256,
         )
         off = resolve_uv_choice_texcoord(
-            {UV_CHOICE_ON_CH1_OFF_CH2: SimpleNamespace(type=3, value=False)}
+            {UV_CHOICE_ON_CH1_OFF_CH2: SimpleNamespace(type=3, value=False)},
+            shaderbin_sha256=CAR_STANDARD_SHADERBIN_SHA256,
         )
         self.assertEqual(on[0], UV_CHOICE_TRUE_TEXCOORD)
         self.assertEqual(off[0], UV_CHOICE_FALSE_TEXCOORD)
@@ -174,6 +186,13 @@ class MaterialDiagnosticsTests(unittest.TestCase):
         self.assertEqual(off[0], 1)
         self.assertIn("TEXCOORD0", on[1].detail)
         self.assertIn("TEXCOORD1", off[1].detail)
+        # Unknown SHA must not reuse car_standard evidence.
+        self.assertIsNone(
+            resolve_uv_choice_texcoord(
+                {UV_CHOICE_ON_CH1_OFF_CH2: SimpleNamespace(type=3, value=True)},
+                shaderbin_sha256="deadbeef" * 8,
+            )
+        )
 
     def test_partial_and_missing_provenance_reporting(self):
         report = ImportMaterialReport(

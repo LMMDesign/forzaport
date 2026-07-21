@@ -1,0 +1,47 @@
+{
+  "shader_name": "car_livery",
+  "shaderbin_sha256": "f1617a600d251bc8acb78abf939ce6b1b223ea23afee8f4fb592094c135051bb",
+  "schema_notes": "Declared TXMP Alpha@t16 exists; CarLightScenario does not sample it.",
+  "relevant_passes": [
+    {
+      "scenario": "CarLightScenario",
+      "variant": "",
+      "archive_member": "car_liveryCarLightScenario.pcdxil.pso",
+      "stage": "ps",
+      "blender_relevance": "MAIN_SURFACE_SHADING",
+      "reason": "Primary raster lighting for car_livery surfaces.",
+      "import_sample_sites": []
+    },
+    {
+      "scenario": "SimpleCarLightScenario",
+      "variant": "",
+      "archive_member": "car_liverySimpleCarLightScenario.pcdxil.pso",
+      "stage": "ps",
+      "blender_relevance": "VISIBILITY",
+      "reason": "Samples Alpha t16 omitted from CarLightScenario; feeds SV_Target.a / discard.",
+      "import_sample_sites": [
+        {
+          "texture_register": 16,
+          "sampler_register": null,
+          "expected_comps": [0],
+          "uv_expression": "TEXCOORD0",
+          "expected_uv_expression": "TEXCOORD0",
+          "uv_branch_status": "PROVEN_UNIQUE",
+          "blender_relevance": "SURFACE_VISIBILITY",
+          "declared_txmp_name": "Alpha",
+          "declared_txmp_hash": "0x698CA64F",
+          "semantic_role": "alpha_mask",
+          "final_use": "SV_Target.a / discard",
+          "active_branch": "SimpleCarLightScenario visibility path",
+          "mati_provenance": "TXMP Alpha declared on shaderbin; MatI binds path when present",
+          "blender_import": true,
+          "evidence": [
+            "DXIL sample t16.r @ TEXCOORD0 feeds SV_Target alpha",
+            "CarLightScenario incompleteness reference example"
+          ]
+        }
+      ]
+    }
+  ],
+  "unresolved": []
+}

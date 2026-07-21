@@ -140,7 +140,12 @@ def _address_for_bind(params: dict, spmp: dict, bind):
 def _uv_index_for(bind, params: dict, txmp_name: str) -> int | None:
     if bind is None:
         return None
-    uv = resolve_binding_uv(bind, params, txmp_name=txmp_name)
+    uv = resolve_binding_uv(
+        bind,
+        params,
+        txmp_name=txmp_name,
+        shaderbin_sha256=CAR_CARBONFIBER_SHADERBIN_SHA256,
+    )
     return int(uv) if uv is not None else None
 
 
