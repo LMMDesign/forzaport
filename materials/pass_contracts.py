@@ -135,45 +135,54 @@ def _uv_semantics_from_expression(expr) -> tuple[int, ...] | None:
 def blender_import_merge_specs(
     shaderbin_sha256: str | None,
 ) -> tuple[PassMergeSpec, ...]:
-    """PassMergeSpec rows for sites with blender_import=true only."""
+    """Deprecated compatibility adapter: **one PassMergeSpec per site**.
+
+    Do not collapse a pass's sites into a single multi-register merge descriptor.
+    Authoritative evaluation uses ``sample_site_eval.evaluate_material_sample_sites``.
+    """
     data = load_shader_pass_contract(shaderbin_sha256)
     if not data:
         return ()
     out: list[PassMergeSpec] = []
     for pass_row in data.get("relevant_passes") or []:
-        sites = [
-            s
-            for s in (pass_row.get("import_sample_sites") or [])
-            if s.get("blender_import") is True
-        ]
-        if not sites:
-            continue
         member = pass_row.get("archive_member") or ""
         basename = os.path.basename(member.replace("\\", "/"))
-        regs = tuple(int(s["texture_register"]) for s in sites)
-        # One merge spec per pass; UV/comps checked per-site in merge helper.
-        first = sites[0]
-        uv_expr = first.get("expected_uv_expression")
-        if uv_expr is None:
-            uv_expr = first.get("uv_expression")
-        out.append(
-            PassMergeSpec(
-                pass_name=str(pass_row.get("scenario") or ""),
-                pso_basename=basename,
-                merge_texture_registers=regs,
-                expected_uv_semantics=_uv_semantics_from_expression(uv_expr),
-                expected_comps=tuple(first.get("expected_comps") or ()) or None,
-                require_sv_target_alpha="alpha" in str(first.get("semantic_role") or "").lower()
-                or "SV_Target.a" in str(first.get("final_use") or ""),
-                evidence="; ".join(
-                    e if isinstance(e, str) else str(e)
-                    for e in (first.get("evidence") or [])
+        for s in pass_row.get("import_sample_sites") or []:
+            if s.get("blender_import") is not True:
+                continue
+            if "texture_register" not in s:
+                # Ranges are not mergeable as a single site.
+                continue
+            treg = int(s["texture_register"])
+            uv_expr = s.get("uv_expression")
+            if uv_expr is None:
+                uv_expr = s.get("expected_uv_expression")
+            out.append(
+                PassMergeSpec(
+                    pass_name=str(pass_row.get("scenario") or ""),
+                    pso_basename=basename,
+                    merge_texture_registers=(treg,),
+                    expected_uv_semantics=_uv_semantics_from_expression(uv_expr),
+                    expected_comps=tuple(s.get("expected_comps") or ()) or None,
+                    require_sv_target_alpha=(
+                        "alpha" in str(s.get("semantic_role") or "").lower()
+                        or "SV_Target.a" in str(s.get("final_use") or "")
+                    ),
+                    evidence="; ".join(
+                        e if isinstance(e, str) else str(e)
+                        for e in (s.get("evidence") or [])
+                    )
+                    or str(pass_row.get("reason") or ""),
+                    blender_relevance=str(
+                        s.get("blender_relevance")
+                        or pass_row.get("blender_relevance")
+                        or "UNRESOLVED"
+                    ),
+                    expected_uv_expression=(
+                        str(uv_expr) if isinstance(uv_expr, str) else None
+                    ),
                 )
-                or str(pass_row.get("reason") or ""),
-                blender_relevance=str(pass_row.get("blender_relevance") or "UNRESOLVED"),
-                expected_uv_expression=str(uv_expr) if not isinstance(uv_expr, dict) else None,
             )
-        )
     return tuple(out)
 
 

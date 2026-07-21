@@ -101,6 +101,10 @@ class ShaderBindings:
     evidence: list[str] = field(default_factory=list)
     pass_name: str = PRIMARY_RASTER_PASS
     passes_analyzed: list[str] = field(default_factory=list)
+    # Authoritative per-site records (not keyed by register alone).
+    sample_sites: list[dict] = field(default_factory=list)
+    compatibility_bridge_used: bool = False
+    rejection_reasons: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -1063,14 +1067,21 @@ def _analyze_named_pass(
 def _merge_pass_sites(
     *,
     textures: dict[int, TextureBinding],
+    sample_sites: list[dict],
     primary: StaticShaderPassAnalysis,
     secondary: StaticShaderPassAnalysis,
     spec: PassMergeSpec,
+    site_identity_key: str = "",
+    resolved_texcoord: int | None = None,
+    allow_same_register: bool = True,
 ) -> None:
-    """Merge contracted tregs from secondary pass; refuse drift vs contract."""
+    """Import one contracted sample site from a secondary pass.
+
+    Never discards a secondary site solely because ``treg`` already exists in
+    the primary register map — same-register multi-site cases are recorded in
+    ``sample_sites``. The ``textures`` dict remains a compatibility bridge only.
+    """
     for treg in spec.merge_texture_registers:
-        if treg in textures:
-            continue
         src = secondary.textures.get(treg)
         if src is None:
             raise ShaderBindingError(
@@ -1079,6 +1090,7 @@ def _merge_pass_sites(
             )
         if spec.expected_uv_semantics is not None:
             if tuple(src.uv_semantics_all or []) != tuple(spec.expected_uv_semantics):
+                # Multi-UV Select sites: expected_uv_semantics is None; unique only.
                 raise ShaderBindingError(
                     f"pass contract {spec.pass_name} t{treg} UV drift: "
                     f"expected {list(spec.expected_uv_semantics)}, "
@@ -1091,7 +1103,9 @@ def _merge_pass_sites(
                     f"expected {list(spec.expected_comps)}, got {src.comps}"
                 )
         bind = _clone_textures({treg: src})[treg]
-        if len(bind.uv_semantics_all or []) == 1:
+        if resolved_texcoord is not None:
+            bind.uv_semantic = int(resolved_texcoord)
+        elif len(bind.uv_semantics_all or []) == 1:
             bind.uv_semantic = int(bind.uv_semantics_all[0])
         if spec.require_sv_target_alpha:
             bind.role = "alpha"
@@ -1102,8 +1116,32 @@ def _merge_pass_sites(
                     f"evidence: {bind.evidence}"
                 )
         bind.evidence.append(
-            f"merged_from_pass={spec.pass_name};{spec.evidence}"
+            f"sample_site_contract={spec.pass_name};{spec.evidence}"
         )
+        site_rec = {
+            "identity_key": site_identity_key
+            or f"{secondary.pass_name}|t{treg}|{secondary.pso_member}",
+            "pass_name": spec.pass_name,
+            "archive_member": secondary.pso_member,
+            "pso_sha256": secondary.pso_sha256,
+            "texture_register": treg,
+            "sampler_register": bind.sampler_reg,
+            "comps": list(bind.comps or []),
+            "uv_semantic": bind.uv_semantic,
+            "uv_semantics_all": list(bind.uv_semantics_all or []),
+            "role": bind.role,
+            "same_register_as_primary": treg in textures,
+            "evidence": list(bind.evidence or []),
+        }
+        sample_sites.append(site_rec)
+        if treg in textures:
+            if not allow_same_register:
+                raise ShaderBindingError(
+                    f"same-register site t{treg} from {spec.pass_name} conflicts "
+                    f"with primary without multi-site support"
+                )
+            # Keep primary TextureBinding; secondary lives in sample_sites only.
+            continue
         textures[treg] = bind
 
 
@@ -1120,6 +1158,9 @@ def extract_bindings(
     Additional passes contribute contracted sample sites (not register unions).
     Instance MatI values select UVChoice / variant; static PSO analysis stays
     cached without MatI contamination.
+
+    ``textures`` remains a compatibility TextureBinding bridge keyed by register;
+    authoritative per-site records live in ``sample_sites``.
     """
     from .sample_site_eval import evaluate_material_sample_sites
 
@@ -1159,37 +1200,85 @@ def extract_bindings(
         evidence = list(primary.evidence)
         passes_analyzed = [primary.pass_name]
         extra_pso_hashes: dict[str, str] = {}
+        sample_sites: list[dict] = []
+        compatibility_bridge_used = False
+        rejection_reasons: list[str] = []
+
+        # Seed primary-pass sites (one row per register present in analysis).
+        for treg, bind in sorted(textures.items()):
+            sample_sites.append(
+                {
+                    "identity_key": (
+                        f"{primary.shaderbin_sha256[:16]}|{primary.pso_member}|"
+                        f"{primary.pass_name}|t{treg}|primary"
+                    ),
+                    "pass_name": primary.pass_name,
+                    "archive_member": primary.pso_member,
+                    "pso_sha256": primary.pso_sha256,
+                    "texture_register": treg,
+                    "sampler_register": bind.sampler_reg,
+                    "comps": list(bind.comps or []),
+                    "uv_semantic": bind.uv_semantic,
+                    "uv_semantics_all": list(bind.uv_semantics_all or []),
+                    "role": bind.role,
+                    "same_register_as_primary": False,
+                    "origin": "primary_pass_bridge",
+                    "evidence": list(bind.evidence or []),
+                }
+            )
+            compatibility_bridge_used = True
 
         evaluated = evaluate_material_sample_sites(
             shaderbin_sha256=primary.shaderbin_sha256,
             params=params,
         )
         if evaluated.variant.status == "REJECTED":
-            evidence.append(f"variant_rejected:{evaluated.variant.provenance}")
+            msg = f"variant_rejected:{evaluated.variant.provenance}"
+            evidence.append(msg)
+            rejection_reasons.append(msg)
+            raise ShaderBindingError(
+                f"variant selection rejected for {shader_name}: "
+                f"{evaluated.variant.provenance}"
+            )
         for reason in evaluated.rejection_reasons:
             evidence.append(f"sample_site:{reason}")
+            rejection_reasons.append(reason)
 
-        # Merge PSOs for ACTIVE blender_import sample sites only (by scenario).
+        # Fail closed: unresolved/rejected *active* blender_import sites must not
+        # silently fall back to CarLight-only register bindings.
+        bad_active = [
+            s
+            for s in evaluated.sites
+            if s.blender_import and s.status in ("REJECTED", "UNRESOLVED")
+        ]
+        if bad_active:
+            detail = "; ".join(
+                f"{s.sample_site_id}:{s.status}" for s in bad_active[:8]
+            )
+            raise ShaderBindingError(
+                f"unresolved active sample site(s) for {shader_name}: {detail}"
+            )
+
         active_sites = [
             s
             for s in evaluated.sites
             if s.blender_import and s.status == "ACTIVE"
         ]
-        # Direct TEXCOORD visibility contracts may evaluate ACTIVE; also allow
-        # PassMergeSpec with unique expected UV when evaluation listed the site
-        # as blender_import with PROVEN_DIRECT (status ACTIVE).
+
+        # One PassMergeSpec per site (compatibility adapter) — never collapse a
+        # pass to first-site UV/comps for all registers.
         for spec in additional_passes_for_sha(primary.shaderbin_sha256):
-            sites_for_pass = [s for s in active_sites if s.scenario == spec.pass_name]
-            if sites_for_pass:
-                active_regs = tuple(
-                    sorted({s.texture_register for s in sites_for_pass})
-                )
-            elif (
+            matching = [
+                s
+                for s in active_sites
+                if s.scenario == spec.pass_name
+                and s.texture_register in spec.merge_texture_registers
+            ]
+            if not matching and (
                 spec.expected_uv_semantics is not None
                 and len(spec.expected_uv_semantics) == 1
             ):
-                # Unique-UV JSON contracts (livery/reflector) — import when
-                # evaluate did not mark UNRESOLVED for that scenario.
+                # Unique-UV JSON contracts without MatI Select (livery/reflector).
                 blocked = any(
                     s.scenario == spec.pass_name
                     and s.blender_import
@@ -1198,9 +1287,14 @@ def extract_bindings(
                 )
                 if blocked:
                     continue
-                active_regs = spec.merge_texture_registers
-                sites_for_pass = []
+                matching = []
+                # Synthetic one-site merge using the spec register.
+                matching_regs = list(spec.merge_texture_registers)
             else:
+                matching_regs = [s.texture_register for s in matching]
+            if not matching and not matching_regs:
+                continue
+            if not matching_regs:
                 continue
 
             member = _exact_named_pso(names, spec.pso_basename)
@@ -1217,35 +1311,51 @@ def extract_bindings(
                 game_key=game_key or "",
                 zip_basename=os.path.basename(zip_path),
             )
-            narrowed = PassMergeSpec(
-                pass_name=spec.pass_name,
-                pso_basename=spec.pso_basename,
-                merge_texture_registers=active_regs,
-                expected_uv_semantics=spec.expected_uv_semantics,
-                expected_comps=spec.expected_comps,
-                require_sv_target_alpha=spec.require_sv_target_alpha,
-                evidence=spec.evidence,
-                blender_relevance=spec.blender_relevance,
-                expected_uv_expression=spec.expected_uv_expression,
-            )
-            _merge_pass_sites(
-                textures=textures,
-                primary=primary,
-                secondary=secondary,
-                spec=narrowed,
-            )
-            for site in sites_for_pass:
-                if (
-                    site.resolved_texcoord is not None
-                    and site.texture_register in textures
-                ):
-                    bind = textures[site.texture_register]
-                    bind.uv_semantic = int(site.resolved_texcoord)
-                    bind.evidence.append(
-                        f"evaluated_sample_site={site.sample_site_id};"
-                        f"TEXCOORD{site.resolved_texcoord}"
-                    )
-            passes_analyzed.append(spec.pass_name)
+            # Merge each register as its own site (already one per spec typically).
+            for treg in matching_regs:
+                site = next(
+                    (s for s in matching if s.texture_register == treg),
+                    None,
+                )
+                narrowed = PassMergeSpec(
+                    pass_name=spec.pass_name,
+                    pso_basename=spec.pso_basename,
+                    merge_texture_registers=(treg,),
+                    expected_uv_semantics=spec.expected_uv_semantics,
+                    expected_comps=(
+                        site.sampled_components
+                        if site and site.sampled_components
+                        else spec.expected_comps
+                    ),
+                    require_sv_target_alpha=spec.require_sv_target_alpha,
+                    evidence=spec.evidence,
+                    blender_relevance=spec.blender_relevance,
+                    expected_uv_expression=spec.expected_uv_expression,
+                )
+                _merge_pass_sites(
+                    textures=textures,
+                    sample_sites=sample_sites,
+                    primary=primary,
+                    secondary=secondary,
+                    spec=narrowed,
+                    site_identity_key=(
+                        site.identity.as_key() if site else f"{spec.pass_name}|t{treg}"
+                    ),
+                    resolved_texcoord=(
+                        site.resolved_texcoord if site else None
+                    ),
+                )
+                compatibility_bridge_used = True
+                if site is not None and site.resolved_texcoord is not None:
+                    if treg in textures:
+                        bind = textures[treg]
+                        bind.uv_semantic = int(site.resolved_texcoord)
+                        bind.evidence.append(
+                            f"evaluated_sample_site={site.sample_site_id};"
+                            f"TEXCOORD{site.resolved_texcoord}"
+                        )
+            if spec.pass_name not in passes_analyzed:
+                passes_analyzed.append(spec.pass_name)
             evidence.append(f"sample_site_contract_pass={member}")
             extra_pso_hashes[f"pso_sha256:{spec.pass_name}"] = secondary.pso_sha256
 
@@ -1263,6 +1373,9 @@ def extract_bindings(
         evidence=evidence,
         pass_name=primary.pass_name,
         passes_analyzed=passes_analyzed,
+        sample_sites=sample_sites,
+        compatibility_bridge_used=compatibility_bridge_used,
+        rejection_reasons=rejection_reasons,
     )
 
 

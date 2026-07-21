@@ -71,7 +71,12 @@ def scenario_from_member(member: str, shader_name: str) -> str:
 
 
 def classify_blender_relevance(scenario: str, variant: str) -> str:
-    """Classify pass facts for Blender material construction."""
+    """Provisional name-based classification only.
+
+    Final contract relevance must be evidence-backed
+    (``PROVEN_FROM_GAME_FILES`` / contract ``relevance_evidence``). Do not treat
+    this heuristic alone as game-file proven.
+    """
     s = (scenario or "").lower()
     v = (variant or "").lower()
     if "dxr" in v or "hit" in v:
@@ -97,6 +102,15 @@ def classify_blender_relevance(scenario: str, variant: str) -> str:
             return "UNRESOLVED"  # variant selection not yet proven
         return "UNRESOLVED"
     return "UNRESOLVED"
+
+
+def provisional_name_relevance(scenario: str, variant: str) -> dict[str, str]:
+    """Return name classification explicitly marked provisional."""
+    return {
+        "relevance": classify_blender_relevance(scenario, variant),
+        "evidence_status": "PROVISIONAL_NAME_CLASSIFICATION",
+        "evidence": f"scenario={scenario!r} variant={variant!r}",
+    }
 
 
 def parse_pass_identity(

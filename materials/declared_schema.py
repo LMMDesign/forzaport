@@ -85,9 +85,21 @@ def parse_shaderbin_xml(xml_bytes: bytes) -> dict[str, Any]:
                 "referenced": p.get("referenced"),
             }
         )
+    vertex_usage_by_variant: list[dict[str, Any]] = []
+    for ev in root.findall("./Variants/ExportVariant"):
+        variant_name = ev.get("name") or ""
+        for vi in ev.findall("./VertexInputUsage"):
+            vertex_usage_by_variant.append(
+                {
+                    "export_variant": variant_name,
+                    "scenarios": dict(vi.attrib),
+                    "declaration_status": "PROVEN_FROM_GAME_FILES",
+                }
+            )
+    # Backward-compat flat map: first variant only, marked provisional if multiple.
     vertex_usage = {}
-    for vi in root.findall("./Variants/ExportVariant/VertexInputUsage"):
-        vertex_usage = dict(vi.attrib)
+    if vertex_usage_by_variant:
+        vertex_usage = dict(vertex_usage_by_variant[0].get("scenarios") or {})
     tex_el = root.find("./Textures")
     return {
         "variant_properties": variant_properties,
@@ -95,7 +107,18 @@ def parse_shaderbin_xml(xml_bytes: bytes) -> dict[str, Any]:
         "export_textures": textures,
         "export_parameters": parameters,
         "vertex_input_usage_by_scenario": vertex_usage,
+        "vertex_input_usage_by_export_variant": vertex_usage_by_variant,
+        "vertex_input_usage_status": (
+            "PROVEN_FROM_GAME_FILES"
+            if vertex_usage_by_variant
+            else "NOT_DECLARED"
+        ),
         "textures_count_attr": tex_el.get("count") if tex_el is not None else None,
+        "textures_declaration_status": (
+            "PROVEN_FROM_GAME_FILES"
+            if tex_el is not None
+            else "NOT_DECLARED"
+        ),
     }
 
 
@@ -203,11 +226,17 @@ def dump_shader_archive(archive_path: str, shader_name: str) -> dict[str, Any]:
 
 
 def dump_material_instance(material) -> dict[str, Any]:
-    """Declared vs instance-bound snapshot for one MatI object."""
+    """Declared vs instance-bound snapshot for one MatI object.
+
+    Includes full provenance categories (not only in_local / in_instance).
+    """
+    from .mati_parameter_provenance import dump_instance_parameter_provenance
+
     params = getattr(material, "parameters", None) or {}
     local = getattr(material, "parameters_local", None) or {}
     inst = getattr(material, "parameters_instance", None) or {}
     txmp = getattr(material, "txmp", None) or {}
+    provenance = dump_instance_parameter_provenance(material)
     rows = []
     for h in sorted(set(params) | set(local) | set(inst), key=lambda x: x & 0xFFFFFFFF):
         name = name_for_hash(h)
@@ -229,6 +258,13 @@ def dump_material_instance(material) -> dict[str, Any]:
         }
         if p is not None:
             row.update(_param_summary(p))
+        # Attach authoritative provenance category.
+        for pr in provenance.get("parameters") or []:
+            if pr.get("name_hash") == row["name_hash"]:
+                row["provenance_category"] = pr.get("category")
+                row["declaration_status"] = pr.get("declaration_status")
+                row["unresolved_conflicts"] = pr.get("unresolved_conflicts")
+                break
         rows.append(row)
     bindings = []
     for h, reg in sorted(txmp.items(), key=lambda kv: int(kv[1])):
@@ -248,4 +284,5 @@ def dump_material_instance(material) -> dict[str, Any]:
         "parent_material_path": getattr(material, "parent_material_path", None),
         "parameters": rows,
         "texture_bindings": bindings,
+        "parameter_provenance": provenance,
     }

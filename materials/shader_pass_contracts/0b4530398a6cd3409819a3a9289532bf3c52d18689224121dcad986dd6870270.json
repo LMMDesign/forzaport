@@ -3,7 +3,7 @@
   "shader_name": "car_tires_pg",
   "shaderbin_sha256": "0b4530398a6cd3409819a3a9289532bf3c52d18689224121dcad986dd6870270",
   "status": "CONTRACTED_NO_BLENDER_IMPORT",
-  "schema_notes": "SimpleCar t19–t25 are Legacy* maps on _Standard_L only. Absent from CarLight because primary lighting uses different registers; Legacy variant required. B2 tyre shading not started — sites documented only.",
+  "schema_notes": "SimpleCar t19–t25 are Legacy* maps on _Standard_L only. Each register is a distinct site (no register-range collapse). B2 tyre shading not started — sites documented only.",
   "relevant_passes": [
     {
       "scenario": "CarLightScenario",
@@ -36,8 +36,8 @@
       "import_sample_sites": [
         {
           "sample_site_id": "tires_pg|SimpleCar|_Standard_L|t19",
+          "instruction_id": "tires_pg|SimpleCar|_Standard_L|t19",
           "texture_register": 19,
-          "expected_comps": null,
           "uv_expression": {
             "kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT",
             "note": "TEXCOORD ancestry includes 0 and 4; full DAG not contracted for Blender"
@@ -50,21 +50,74 @@
           "blender_relevance": "SURFACE_VISIBILITY",
           "evidence": [
             "Present on _Standard_L SimpleCar only",
-            "Absent from CarLightScenario sample set for non-legacy registers overlap",
             "B2 not started — fail closed for Blender import"
           ]
         },
         {
-          "sample_site_id": "tires_pg|SimpleCar|_Standard_L|t20-t25",
-          "texture_register_range": [20, 25],
+          "sample_site_id": "tires_pg|SimpleCar|_Standard_L|t20",
+          "instruction_id": "tires_pg|SimpleCar|_Standard_L|t20",
+          "texture_register": 20,
           "uv_expression": {"kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT"},
           "uv_branch_status": "UNRESOLVED",
-          "semantic_role": "legacy_tyre_maps",
+          "semantic_role": "legacy_tyre_map",
           "blender_import": false,
           "blender_relevance": "SURFACE_VISIBILITY",
-          "evidence": [
-            "Grouped Legacy* SimpleCar sites; require per-instruction contracts before Blender"
-          ]
+          "evidence": ["Distinct DXIL sample site t20; B2 deferred"]
+        },
+        {
+          "sample_site_id": "tires_pg|SimpleCar|_Standard_L|t21",
+          "instruction_id": "tires_pg|SimpleCar|_Standard_L|t21",
+          "texture_register": 21,
+          "uv_expression": {"kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT"},
+          "uv_branch_status": "UNRESOLVED",
+          "semantic_role": "legacy_tyre_map",
+          "blender_import": false,
+          "blender_relevance": "SURFACE_VISIBILITY",
+          "evidence": ["Distinct DXIL sample site t21; B2 deferred"]
+        },
+        {
+          "sample_site_id": "tires_pg|SimpleCar|_Standard_L|t22",
+          "instruction_id": "tires_pg|SimpleCar|_Standard_L|t22",
+          "texture_register": 22,
+          "uv_expression": {"kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT"},
+          "uv_branch_status": "UNRESOLVED",
+          "semantic_role": "legacy_tyre_map",
+          "blender_import": false,
+          "blender_relevance": "SURFACE_VISIBILITY",
+          "evidence": ["Distinct DXIL sample site t22; B2 deferred"]
+        },
+        {
+          "sample_site_id": "tires_pg|SimpleCar|_Standard_L|t23",
+          "instruction_id": "tires_pg|SimpleCar|_Standard_L|t23",
+          "texture_register": 23,
+          "uv_expression": {"kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT"},
+          "uv_branch_status": "UNRESOLVED",
+          "semantic_role": "legacy_tyre_map",
+          "blender_import": false,
+          "blender_relevance": "SURFACE_VISIBILITY",
+          "evidence": ["Distinct DXIL sample site t23; B2 deferred"]
+        },
+        {
+          "sample_site_id": "tires_pg|SimpleCar|_Standard_L|t24",
+          "instruction_id": "tires_pg|SimpleCar|_Standard_L|t24",
+          "texture_register": 24,
+          "uv_expression": {"kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT"},
+          "uv_branch_status": "UNRESOLVED",
+          "semantic_role": "legacy_tyre_map",
+          "blender_import": false,
+          "blender_relevance": "SURFACE_VISIBILITY",
+          "evidence": ["Distinct DXIL sample site t24; B2 deferred"]
+        },
+        {
+          "sample_site_id": "tires_pg|SimpleCar|_Standard_L|t25",
+          "instruction_id": "tires_pg|SimpleCar|_Standard_L|t25",
+          "texture_register": 25,
+          "uv_expression": {"kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT"},
+          "uv_branch_status": "UNRESOLVED",
+          "semantic_role": "legacy_tyre_map",
+          "blender_import": false,
+          "blender_relevance": "SURFACE_VISIBILITY",
+          "evidence": ["Distinct DXIL sample site t25; B2 deferred"]
         }
       ]
     }

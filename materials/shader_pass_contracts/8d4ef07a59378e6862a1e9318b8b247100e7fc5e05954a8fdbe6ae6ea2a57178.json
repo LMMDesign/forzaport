@@ -32,7 +32,9 @@
             "predicate": {
               "param_hash": "0x402B8ED0",
               "param_name": "UVChoice_OnCh1_OffCh2",
+              "type": 3,
               "true_when": "nonzero",
+              "missing_policy": "reject",
               "cb_slot": "c13.0"
             },
             "true": "TEXCOORD0",

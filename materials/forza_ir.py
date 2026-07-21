@@ -102,6 +102,9 @@ class TextureSampleExpression:
     color_space: str
     sampler: SamplerState
     evidence: tuple[ProvenanceDiagnostic, ...] = ()
+    # Exact sample-site identity key when known — do not collapse same-register sites.
+    sample_site_id: str | None = None
+    sample_site_key: str | None = None
 
 
 # --- Material expression DAG ------------------------------------------------
@@ -122,6 +125,7 @@ class ConstantScalar:
 @dataclass(frozen=True)
 class TextureSample:
     sample: TextureSampleExpression
+    sample_site_id: str | None = None
 
 
 @dataclass(frozen=True)

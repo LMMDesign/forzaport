@@ -97,15 +97,22 @@ Materials are built **directly from game data** (fail closed):
    declare which additional passes contribute which sample sites and whether
    those facts are relevant to Blender (`MAIN_SURFACE_SHADING`, `VISIBILITY`,
    `DEBUG_ONLY`, …). Unknown SHAs fail closed.
-5. Evaluate the MatI instance (bindings + branch conditions) into `ForzaMaterialIR`,
-   then compile a minimal Blender graph.
+5. Evaluate exact sample-site contracts (bindings + branch predicates + typed UV
+   expressions) into `ForzaMaterialIR`, then compile a minimal Blender graph.
+
+> **Temporary accuracy note:** Exact sample-site contracts are being introduced;
+> some production paths still use a compatibility `TextureBinding` bridge keyed
+> by texture register. Authoritative evaluation is identity-keyed
+> (`ShaderSampleSiteIdentity`); the bridge must not discard same-register
+> additional-pass sites.
 
 Static DXIL analysis is cached by game + shaderbin SHA + full PSO member path +
 PSO SHA + parser version + variant + pass + stage. Instance evaluation is never
 memoized by shader name alone.
 
-UVChoice (`UVChoice_OnCh1_OffCh2` → TEXCOORD0/1) applies only to exact SHA
-`8df4836b…` (car_standard) until another SHA has independent DXIL proof.
+UVChoice (`UVChoice_OnCh1_OffCh2` → TEXCOORD0/1) applies only to exact SHAs with
+independent DXIL proof (`8df4836b…` car_standard and `8d4ef07a…`
+car_standard_emissive). Unknown SHAs fail closed.
 
 Requires `dxc` (see `THIRD_PARTY.md` / `FORZA_DXC`).
 
