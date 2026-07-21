@@ -1,0 +1,383 @@
+{
+  "contracts": {
+    "8df4836b0bf017fccbaf4f5bd5ce7a217f260924e457c72751a2d5df8163df16": {
+      "alpha_transparency": {
+        "absent": "UNRESOLVED \u2014 do not invent CLIP from Alpha TXMP presence alone",
+        "cb_component": "y",
+        "cb_register": 32,
+        "evidence": [
+          "shaderbin.xml parameter AlphaTransparencyBool referenced=True",
+          "DXIL cbufferLoadLegacy(..., i32 32) extract .y",
+          "PSO blobs lack BLEND/RAST chunks"
+        ],
+        "false_branch": "cutout-related effective coverage forced to 1.0; CarLightScenario still applies ungated product to lighting",
+        "name": "AlphaTransparencyBool",
+        "name_hash": "0x5d3e6f2d",
+        "name_hash_int": 1564372781,
+        "true_branch": "authored_mask participates in discard / IgnoreHit / SV_Target0.a on gated passes",
+        "type": "bool"
+      },
+      "authored_mask": {
+        "equation": "saturate(Alpha.r * BaseColorAlpha.a)",
+        "evidence": [
+          "CarLightScenario SSA %2020 = Alpha.r * BC.a; saturate %2467",
+          "same product form in all audited raster/RT passes"
+        ],
+        "operations": [
+          "multiply",
+          "saturate"
+        ],
+        "ssa_ids": [
+          "%2020",
+          "%2467",
+          "%120",
+          "%892"
+        ]
+      },
+      "branch_conditions": [
+        "AlphaTransparencyBool MatI \u2192 CB reg32.y (hash 0x5D3E6F2D)",
+        "VariantOptions empty \u2014 shared PS set, not compile-time perm"
+      ],
+      "classification": "GAME_FILES_PROVEN_SHADING_MASK",
+      "contract_id": "car_standard.alpha.v2",
+      "evidence": [
+        "reports/.../2026-07-21_grille-coverage_alpha-pso/",
+        "CAR_STANDARD_ALPHA_COVERAGE_AUDIT.md"
+      ],
+      "evidence_status": "PROVEN",
+      "fixed_function_status": "UNRESOLVED_NOT_IN_PSO_BLOB",
+      "output_alpha_equation": "CarLightScenario: SV_Target0.a from CB (typically 1), not product; F++/shadow/simple: product may write SV_Target0.a when transparency on",
+      "passes": [
+        {
+          "authored_mask_ssa": "%2020",
+          "discard_threshold": null,
+          "evidence": [
+            "dxil_audit:2026-07-21_grille-coverage_alpha-pso",
+            "product=Alpha.r*BaseColorAlpha.a (%2020)"
+          ],
+          "feeds_discard": false,
+          "feeds_ignore_hit": false,
+          "feeds_sv_target0_a": false,
+          "feeds_sv_target0_rgb": true,
+          "fixed_function": {
+            "alpha_to_coverage": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "blend_enable": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "depth_write": "UNRESOLVED_NOT_IN_PSO_BLOB"
+          },
+          "pass_name": "CarLightScenario",
+          "samples_t16_alpha_r": true,
+          "samples_t17_bc_a": true,
+          "unresolved": [
+            "fixed_function_blend_depth_a2c"
+          ]
+        },
+        {
+          "authored_mask_ssa": "%2014",
+          "discard_threshold": null,
+          "evidence": [
+            "dxil_audit:2026-07-21_grille-coverage_alpha-pso",
+            "product=Alpha.r*BaseColorAlpha.a (%2014)"
+          ],
+          "feeds_discard": false,
+          "feeds_ignore_hit": false,
+          "feeds_sv_target0_a": false,
+          "feeds_sv_target0_rgb": true,
+          "fixed_function": {
+            "alpha_to_coverage": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "blend_enable": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "depth_write": "UNRESOLVED_NOT_IN_PSO_BLOB"
+          },
+          "pass_name": "CarLOD15LightScenario",
+          "samples_t16_alpha_r": true,
+          "samples_t17_bc_a": true,
+          "unresolved": [
+            "fixed_function_blend_depth_a2c"
+          ]
+        },
+        {
+          "authored_mask_ssa": "%2056",
+          "discard_threshold": null,
+          "evidence": [
+            "dxil_audit:2026-07-21_grille-coverage_alpha-pso",
+            "product=Alpha.r*BaseColorAlpha.a (%2056)"
+          ],
+          "feeds_discard": false,
+          "feeds_ignore_hit": false,
+          "feeds_sv_target0_a": true,
+          "feeds_sv_target0_rgb": true,
+          "fixed_function": {
+            "alpha_to_coverage": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "blend_enable": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "depth_write": "UNRESOLVED_NOT_IN_PSO_BLOB"
+          },
+          "pass_name": "CarFPlusPlusLightScenario",
+          "samples_t16_alpha_r": true,
+          "samples_t17_bc_a": true,
+          "unresolved": [
+            "fixed_function_blend_depth_a2c"
+          ]
+        },
+        {
+          "authored_mask_ssa": "%2305",
+          "discard_threshold": null,
+          "evidence": [
+            "dxil_audit:2026-07-21_grille-coverage_alpha-pso",
+            "product=Alpha.r*BaseColorAlpha.a (%2305)"
+          ],
+          "feeds_discard": false,
+          "feeds_ignore_hit": false,
+          "feeds_sv_target0_a": true,
+          "feeds_sv_target0_rgb": true,
+          "fixed_function": {
+            "alpha_to_coverage": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "blend_enable": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "depth_write": "UNRESOLVED_NOT_IN_PSO_BLOB"
+          },
+          "pass_name": "CarFPlusPlusDebugLightScenario",
+          "samples_t16_alpha_r": true,
+          "samples_t17_bc_a": true,
+          "unresolved": [
+            "fixed_function_blend_depth_a2c"
+          ]
+        },
+        {
+          "authored_mask_ssa": "%2048",
+          "discard_threshold": null,
+          "evidence": [
+            "dxil_audit:2026-07-21_grille-coverage_alpha-pso",
+            "product=Alpha.r*BaseColorAlpha.a (%2048)"
+          ],
+          "feeds_discard": false,
+          "feeds_ignore_hit": false,
+          "feeds_sv_target0_a": true,
+          "feeds_sv_target0_rgb": false,
+          "fixed_function": {
+            "alpha_to_coverage": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "blend_enable": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "depth_write": "UNRESOLVED_NOT_IN_PSO_BLOB"
+          },
+          "pass_name": "CarLOD15FPlusPlusLightScenario",
+          "samples_t16_alpha_r": true,
+          "samples_t17_bc_a": true,
+          "unresolved": [
+            "fixed_function_blend_depth_a2c"
+          ]
+        },
+        {
+          "authored_mask_ssa": "%892",
+          "discard_threshold": 1e-07,
+          "evidence": [
+            "dxil_audit:2026-07-21_grille-coverage_alpha-pso",
+            "product=Alpha.r*BaseColorAlpha.a (%892)"
+          ],
+          "feeds_discard": true,
+          "feeds_ignore_hit": false,
+          "feeds_sv_target0_a": true,
+          "feeds_sv_target0_rgb": true,
+          "fixed_function": {
+            "alpha_to_coverage": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "blend_enable": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "depth_write": "UNRESOLVED_NOT_IN_PSO_BLOB"
+          },
+          "pass_name": "SimpleCarLightScenario",
+          "samples_t16_alpha_r": true,
+          "samples_t17_bc_a": true,
+          "unresolved": [
+            "fixed_function_blend_depth_a2c"
+          ]
+        },
+        {
+          "authored_mask_ssa": "%120",
+          "discard_threshold": 0.5,
+          "evidence": [
+            "dxil_audit:2026-07-21_grille-coverage_alpha-pso",
+            "product=Alpha.r*BaseColorAlpha.a (%120)"
+          ],
+          "feeds_discard": true,
+          "feeds_ignore_hit": false,
+          "feeds_sv_target0_a": true,
+          "feeds_sv_target0_rgb": false,
+          "fixed_function": {
+            "alpha_to_coverage": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "blend_enable": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "depth_write": "UNRESOLVED_NOT_IN_PSO_BLOB"
+          },
+          "pass_name": "CarShadowDepthLightScenario",
+          "samples_t16_alpha_r": true,
+          "samples_t17_bc_a": true,
+          "unresolved": [
+            "fixed_function_blend_depth_a2c"
+          ]
+        },
+        {
+          "authored_mask_ssa": "%60",
+          "discard_threshold": 0.5,
+          "evidence": [
+            "dxil_audit:2026-07-21_grille-coverage_alpha-pso",
+            "product=Alpha.r*BaseColorAlpha.a (%60)"
+          ],
+          "feeds_discard": true,
+          "feeds_ignore_hit": false,
+          "feeds_sv_target0_a": true,
+          "feeds_sv_target0_rgb": false,
+          "fixed_function": {
+            "alpha_to_coverage": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "blend_enable": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "depth_write": "UNRESOLVED_NOT_IN_PSO_BLOB"
+          },
+          "pass_name": "CarShadowDepthNoPSLightScenario",
+          "samples_t16_alpha_r": true,
+          "samples_t17_bc_a": true,
+          "unresolved": [
+            "fixed_function_blend_depth_a2c"
+          ]
+        },
+        {
+          "authored_mask_ssa": "%220",
+          "discard_threshold": null,
+          "evidence": [
+            "dxil_audit:2026-07-21_grille-coverage_alpha-pso",
+            "product=Alpha.r*BaseColorAlpha.a (%220)"
+          ],
+          "feeds_discard": true,
+          "feeds_ignore_hit": false,
+          "feeds_sv_target0_a": true,
+          "feeds_sv_target0_rgb": false,
+          "fixed_function": {
+            "alpha_to_coverage": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "blend_enable": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "depth_write": "UNRESOLVED_NOT_IN_PSO_BLOB"
+          },
+          "pass_name": "WheelBlurScenario",
+          "samples_t16_alpha_r": true,
+          "samples_t17_bc_a": true,
+          "unresolved": [
+            "fixed_function_blend_depth_a2c"
+          ]
+        },
+        {
+          "authored_mask_ssa": "%1381",
+          "discard_threshold": null,
+          "evidence": [
+            "dxil_audit:2026-07-21_grille-coverage_alpha-pso",
+            "product=Alpha.r*BaseColorAlpha.a (%1381)"
+          ],
+          "feeds_discard": true,
+          "feeds_ignore_hit": false,
+          "feeds_sv_target0_a": false,
+          "feeds_sv_target0_rgb": false,
+          "fixed_function": {
+            "alpha_to_coverage": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "blend_enable": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "depth_write": "UNRESOLVED_NOT_IN_PSO_BLOB"
+          },
+          "pass_name": "CarRTBufferLightScenario",
+          "samples_t16_alpha_r": true,
+          "samples_t17_bc_a": true,
+          "unresolved": [
+            "fixed_function_blend_depth_a2c"
+          ]
+        },
+        {
+          "authored_mask_ssa": "%281",
+          "discard_threshold": null,
+          "evidence": [
+            "dxil_audit:2026-07-21_grille-coverage_alpha-pso",
+            "product=Alpha.r*BaseColorAlpha.a (%281)"
+          ],
+          "feeds_discard": true,
+          "feeds_ignore_hit": false,
+          "feeds_sv_target0_a": true,
+          "feeds_sv_target0_rgb": false,
+          "fixed_function": {
+            "alpha_to_coverage": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "blend_enable": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "depth_write": "UNRESOLVED_NOT_IN_PSO_BLOB"
+          },
+          "pass_name": "ProxyLODLightScenario",
+          "samples_t16_alpha_r": true,
+          "samples_t17_bc_a": true,
+          "unresolved": [
+            "fixed_function_blend_depth_a2c"
+          ]
+        },
+        {
+          "authored_mask_ssa": "%267",
+          "discard_threshold": null,
+          "evidence": [
+            "dxil_audit:2026-07-21_grille-coverage_alpha-pso",
+            "product=Alpha.r*BaseColorAlpha.a (%267)"
+          ],
+          "feeds_discard": false,
+          "feeds_ignore_hit": true,
+          "feeds_sv_target0_a": false,
+          "feeds_sv_target0_rgb": false,
+          "fixed_function": {
+            "alpha_to_coverage": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "blend_enable": "UNRESOLVED_NOT_IN_PSO_BLOB",
+            "depth_write": "UNRESOLVED_NOT_IN_PSO_BLOB"
+          },
+          "pass_name": "CarRayTracing_T10LightScenario",
+          "samples_t16_alpha_r": true,
+          "samples_t17_bc_a": true,
+          "unresolved": [
+            "fixed_function_blend_depth_a2c"
+          ]
+        }
+      ],
+      "permutation": "CarLightScenario",
+      "sampled_channels": [
+        {
+          "binding_name_hash": 1770825295,
+          "component": "r",
+          "dxil_instruction_ids": [
+            "%2018",
+            "%118",
+            "%890"
+          ],
+          "evidence": [
+            "DXIL sample Alpha_Texture \u2192 extract .r / .x"
+          ],
+          "sample_site_id": "car_standard|t16|Alpha.r",
+          "sampler_register": 1,
+          "texture_register": 16
+        },
+        {
+          "binding_name_hash": 2246653865,
+          "component": "a",
+          "dxil_instruction_ids": [
+            "%263",
+            "%98",
+            "%202"
+          ],
+          "evidence": [
+            "DXIL sample BaseColorAlpha_Texture \u2192 extract .a / .w"
+          ],
+          "sample_site_id": "car_standard|t17|BaseColorAlpha.a",
+          "sampler_register": 1,
+          "texture_register": 17
+        }
+      ],
+      "shader_family": "car_standard",
+      "shader_sha256": "8df4836b0bf017fccbaf4f5bd5ce7a217f260924e457c72751a2d5df8163df16",
+      "shading_attenuation_equation": "CarLightScenario: authored_mask modulates selected lighting RGB (%2656=max(CB,sat(product)); not full final lit RGB)",
+      "tint_alpha_equation": "tint.a * BaseColorAlpha.a on tint path (separate)",
+      "unresolved": [
+        "fixed_function_blend_depth_stencil_a2c",
+        "deferred consumer of SV_Target0.rgb",
+        "exact Blender cutout mode/threshold (CLIP 0.5 is approximation)"
+      ],
+      "visibility_equation": "Select(AlphaTransparency, authored_mask, Constant(1.0)) in cutout/shadow/simple/RT/F++ alpha paths"
+    }
+  },
+  "policy": {
+    "blender_clip_is_approximation": true,
+    "blender_compiles_evaluated_ir_only": true,
+    "no_filename_heuristics": true,
+    "no_material_name_heuristics": true,
+    "no_texture_payload_branch_selection": true,
+    "scoped_to_exact_sha_only": true,
+    "texture_stats_validation_only": true
+  },
+  "schema_version": 2
+}

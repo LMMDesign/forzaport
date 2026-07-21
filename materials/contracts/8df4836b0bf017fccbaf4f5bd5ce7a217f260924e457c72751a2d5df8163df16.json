@@ -1,0 +1,224 @@
+{
+  "contract_id": "car_standard",
+  "version": "1.0.0-b1",
+  "status": "corpus_proven_production_observed_branches",
+  "status_label": "corpus-proven production contract for observed approved branches",
+  "identity": {
+    "shader_name": "car_standard",
+    "shaderbin_sha256": "8df4836b0bf017fccbaf4f5bd5ce7a217f260924e457c72751a2d5df8163df16",
+    "permutation": "CarLightScenario",
+    "archive_hint": "media/cars/_library/shaders/car_standard.zip"
+  },
+  "corpus": {
+    "instances": 1489,
+    "clusters": 372,
+    "unique_instance_keys_diffed": 1416,
+    "legacy_capability_status": {
+      "SUPPORTED": 378,
+      "PARTIALLY_SUPPORTED": 1111
+    },
+    "note": "1489/2317 is production IR-routing coverage for this SHA, not exhaustive visual conformance. PARTIALLY_SUPPORTED legacy labels are not full capability conformance."
+  },
+  "alpha_mode_provenance": {
+    "mati_use_alpha_test": "absent_on_all_1489",
+    "mati_use_alpha_blend": "absent_on_all_1489",
+    "mati_alpha_transparency": {"True": 378, "False": 1111},
+    "resolver_policy_when_test_blend_absent": "game-file alpha contract: AlphaTransparency=true→CLIP; false→OPAQUE+shading_attenuation; absent→OPAQUE fail-closed (never has_alpha TXMP presence)",
+    "authored_mask": "saturate(Alpha.r * BaseColorAlpha.a) — DXIL product; see materials.alpha / ALPHA_CONTRACTS",
+    "blender_backend_policy": "EEVEE Next compiles evaluated IR only; GREATER_THAN cutout when SurfaceVisibility(CLIP); backend BLENDED ≠ Forza BLEND branch"
+  },
+
+  "production": {
+    "approved_rules": [
+      "uvchoice_on_ch1_off_ch2",
+      "base_color_txmp_or_paint_activation",
+      "base_color_tint_multiply",
+      "base_color_tint_mode_metal_lerp",
+      "rmao_packing_rgb",
+      "normal_sample",
+      "alpha_mat_i_modes",
+      "tiling_from_cb_when_override_false_uses_uv_policy",
+      "uv_rotate_scale_cb_reg19",
+      "bypass_sfx_fx_unbound",
+      "glass_switch_false_only"
+    ],
+    "pending_review_rules": [
+      "base_color_override_switch",
+      "override_tiling_true_branch",
+      "bypass_sfx_true_surfacefx",
+      "glass_switch_true"
+    ],
+    "compatibility_fallback": "other families only; car_standard exact SHA must not use fallback"
+  },
+  "outputs": {
+    "base_color": {
+      "active_sources": ["BaseColorAlpha TXMP (sRGB)", "INSTANCE_PAINT / MATERIAL_CONSTANT when proven"],
+      "inactive": ["shared defaultshader_diff placeholders without branch evidence"],
+      "expression": "saturate(TextureSample * BaseColor_Tint * BaseColor_TintMultiplier); then TintMode.xy metal lerp; optionally Multiply(base, AO.B)",
+      "tint": {
+        "BaseColor_Tint": {"name_hash": "0x53A946B6", "cb": "reg1"},
+        "BaseColor_TintMode": {"name_hash": "0x5EA395A8", "cb": "reg2.xy"},
+        "BaseColor_TintMultiplier": {"name_hash": "0x6B242133", "cb": "reg19.x"},
+        "dxil": "tinted=saturate(tex*Tint*Mult); w=lerp(metal,1-metal,mode.y); albedo=tinted+mode.x*(1-w)*(tex-tinted)"
+      }
+    },
+    "alpha": {
+      "source": "DXIL samples t16 Alpha.r and t17 BaseColorAlpha.a; binding via MatI/TXMP only",
+      "channel": "authored_mask = saturate(Alpha.r * BaseColorAlpha.a)",
+      "modes": {
+        "provenance": "See materials.alpha.car_standard_alpha_contract + DXIL audit 2026-07-21_id39-grille-coverage_alpha-pso. No filename/material-name/texture-stat heuristics.",
+        "CLIP_graph": "AlphaTransparency=true (or UseAlphaTest=true): SurfaceVisibility(CLIP, authored_mask)",
+        "BLEND_graph": "only when UseAlphaBlend=true and UseAlphaTest≠true (never observed in this corpus)",
+        "OPAQUE": "AlphaTransparency=false → visibility Constant(1.0); authored_mask may still be ShadingAttenuation",
+        "UNRESOLVED": "AlphaTransparency absent → fail closed; do not invent CLIP from Alpha TXMP"
+      },
+      "corpus_note": "UseAlphaTest/UseAlphaBlend absent on all 1489; AlphaTransparency True=378 False=1111"
+    },
+    "normal": {
+      "source": "Normal TXMP",
+      "expression": "NormalDecode(TextureSample)",
+      "color_space": "Non-Color"
+    },
+    "roughness": { "source": "RoughMetalAO", "channel": "r/x", "color_space": "Non-Color" },
+    "metallic": { "source": "RoughMetalAO", "channel": "g/y", "color_space": "Non-Color" },
+    "ao": { "source": "RoughMetalAO", "channel": "b/z", "color_space": "Non-Color", "principled_prep": "Multiply into Base Color" }
+  },
+  "uv": {
+    "policy": "UVChoice_OnCh1_OffCh2",
+    "name_hash": "0x402B8ED0",
+    "true": "TEXCOORD0",
+    "false": "TEXCOORD1",
+    "default_when_absent": "fail-closed unless unique TEXCOORD on binding",
+    "shared_u_v_tiling_branch": {
+      "status": "corpus_proven",
+      "transform_order": "SelectUV(UVChoice) -> RotateUV(UV_Orientation deg) -> ScaleUV(U_Tiling, V_Tiling)",
+      "when": "all Override*TilingOnOff == false (observed on full car_standard corpus)",
+      "cb_reg19": {
+        "UV_Orientation": {"name_hash": "0x8B7343AB", "cb": "reg19.y"},
+        "U_Tiling": {"name_hash": "0x19A7D8F1", "cb": "reg19.z"},
+        "V_Tiling": {"name_hash": "0x4A3D8375", "cb": "reg19.w"}
+      },
+      "fail_closed_if_absent": ["U_Tiling", "V_Tiling", "UV_Orientation"],
+      "no_pan": true
+    },
+    "per_binding_override_true_branches": {
+      "status": "pending_review",
+      "switches": [
+        "OverrideBaseColorTilingOnOff",
+        "OverrideNormalTilingOnOff",
+        "OverrideRoughMetalAOtilingOnOff",
+        "OverrideAlphaTilingOnOff"
+      ],
+      "production": "reject when any Override*=true until independent DXIL slice + corpus evidence",
+      "note": "Do not claim proven merely because switch/parameter names exist in shaderbin"
+    },
+    "blender_layer_names": ["TEXCOORD0", "TEXCOORD1"]
+  },
+  "sampler": {
+    "default_address": ["REPEAT", "REPEAT"],
+    "filter": "LINEAR"
+  },
+  "switches": [
+    {
+      "name": "UVChoice_OnCh1_OffCh2",
+      "name_hash": "0x402B8ED0",
+      "cbuffer": "reg29.x",
+      "corpus": { "True": 448, "False": 1041 },
+      "effect": "select MeshUV(0) vs MeshUV(1) for BaseColorAlpha/Alpha/Normal/RoughMetalAO",
+      "production": "approved"
+    },
+    {
+      "name": "BaseColorOverrideSwitch",
+      "name_hash": "0x71134963",
+      "corpus": { "absent": 1489 },
+      "effect": "pending: constant/paint override path when true",
+      "production": "pending_review; reject if true in production_mode"
+    },
+    {
+      "name": "AlphaTransparency",
+      "corpus": { "True": 378, "False": 1111 },
+      "effect": "enables external alpha map / transparent mix when true",
+      "production": "approved via alpha_mat_i_modes"
+    },
+    {
+      "name": "UseAlphaTest",
+      "corpus": { "absent": 1489 },
+      "effect": "CLIP when present+true (shader default path recoverable)",
+      "production": "approved when capability recovers"
+    },
+    {
+      "name": "UseAlphaBlend",
+      "corpus": { "absent": 1489 },
+      "effect": "BLEND when present+true",
+      "production": "approved when capability recovers"
+    },
+    {
+      "name": "OverrideBaseColorTilingOnOff",
+      "name_hash": "0xB8E61E16",
+      "cbuffer": "reg29.y",
+      "corpus": { "False": 1489 },
+      "effect": "false → use UV policy tiling; true branch pending",
+      "production": "false approved; true pending_review"
+    },
+    {
+      "name": "OverrideAlphaTilingOnOff",
+      "corpus": { "False": 1489 },
+      "production": "false approved; true pending_review"
+    },
+    {
+      "name": "OverrideNormalTilingOnOff",
+      "corpus": { "False": 1489 },
+      "production": "false approved; true pending_review"
+    },
+    {
+      "name": "OverrideRoughMetalAOtilingOnOff",
+      "corpus": { "False": 1489 },
+      "production": "false approved; true pending_review"
+    },
+    {
+      "name": "GlassSwitch",
+      "cbuffer": "reg30.w",
+      "corpus": { "False": 1489 },
+      "effect": "true would divert to glass-like path — not clean IR",
+      "production": "false_only approved; true rejects"
+    },
+    {
+      "name": "BypassSFXOnOff",
+      "name_hash": "0xA14CA0B8",
+      "cbuffer": "reg30.z",
+      "corpus": { "False": 1403, "True": 86 },
+      "effect": "DXIL icmp gates SurfaceFX; clean IR leaves FX unbound either way",
+      "production": "fx_unbound approved; SurfaceFX bind pending_review"
+    },
+    {
+      "name": "CrumpleDamageSwitch",
+      "corpus": { "True": 1489 },
+      "effect": "damage/FX path; not wired in clean IR",
+      "production": "ignored (unbound FX)"
+    },
+    {
+      "name": "ScratchesOnOff",
+      "corpus": { "True": 1489 },
+      "effect": "SFX; not wired in clean IR",
+      "production": "ignored (unbound FX)"
+    }
+  ],
+  "ir_expressions": [
+    "TextureSample",
+    "ConstantColor",
+    "Multiply",
+    "Channel",
+    "NormalDecode",
+    "MeshUV",
+    "ScaleUV",
+    "RotateUV",
+    "SelectUV",
+    "Mix",
+    "Clamp"
+  ],
+  "blender_backend": {
+    "entry": "materials.nodes_v3.build_material",
+    "compiler": "materials.ir_compiler.compile_forza_material_ir",
+    "constraint": "compiler must not inspect MatI/TXMP/shader filenames; decisions live in evaluated ForzaMaterialIR"
+  }
+}

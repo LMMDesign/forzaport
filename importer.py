@@ -58,7 +58,8 @@ class Importer:
         )
         self.image_cache = {}        # texture guid -> bpy image
         self.built_materials = {}    # material name -> bpy material
-        self.material_specs = {}     # material name -> MaterialSpec (or None)
+        self.material_specs = {}     # material name -> ResolvedMaterial (or None)
+        self.material_sources = {}   # material name -> MatI object (IR families)
         self.root_collection = None
         media = find_media_root(options.game_path) or options.game_path
         self.game_key = resolve_import_game_key(
@@ -582,7 +583,7 @@ class Importer:
             return
 
         from .materials.diagnose import resolve_with_diagnostics
-        from .materials.diagnostic_material import get_unresolved_material
+        from .materials.diagnostic_material import get_diagnostic_material
         from .materials.diagnostics import (
             AssignmentOutcome,
             MaterialStatus,
@@ -597,11 +598,18 @@ class Importer:
                 self._builder, name, pm.obj, resolver=self.resolver
             )
             diag = result.diagnostic
-            spec = result.spec
-            self.material_specs[name] = spec
+            # Prefer authoritative ResolvedMaterial so WEAVE_COMPOSITE / activation
+            # survive node construction (MaterialSpec cannot carry weave).
+            resolved = (
+                result.resolution.resolved
+                if result.resolution is not None and result.resolution.is_selected
+                else None
+            )
+            self.material_specs[name] = resolved
+            self.material_sources[name] = pm.obj
             if self.material_report is not None:
                 self.material_report.upsert(diag)
-            if spec is None or not spec.valid:
+            if resolved is None:
                 print(
                     f"Material unresolved '{name}': "
                     f"{diag.status.value}: {diag.failure_reason or diag.errors}"
@@ -610,7 +618,7 @@ class Importer:
                     (name, diag.failure_reason or diag.status.value)
                 )
         else:
-            spec = cached
+            resolved = cached
             diag = (
                 self.material_report.entries.get(name)
                 if self.material_report is not None
@@ -619,12 +627,21 @@ class Importer:
 
         mat = None
         assign_diagnostic = False
-        if spec is not None and spec.valid:
+        if resolved is not None:
             mat = self.built_materials.get(name)
             graph_v = getattr(nodes, "MATERIAL_GRAPH_VERSION", 0)
             if mat is None or mat.get("forza_graph_v", 0) != graph_v:
                 try:
-                    mat = nodes.build_material(spec, self.resolver, self.image_cache)
+                    media_root = getattr(self._builder, "media_root", None) or getattr(
+                        self.resolver, "root", None
+                    )
+                    mat = nodes.build_material(
+                        resolved,
+                        self.resolver,
+                        self.image_cache,
+                        source_material=self.material_sources.get(name),
+                        media_root=media_root,
+                    )
                     self.built_materials[name] = mat
                     if self.material_report is not None and name in self.material_report.entries:
                         prev = self.material_report.entries[name]
@@ -636,13 +653,27 @@ class Importer:
                     print(f"Material unresolved '{name}': node graph: {e}")
                     self._material_failures.append((name, f"node graph: {e}"))
                     assign_diagnostic = True
+                    err = str(e)
+                    status = MaterialStatus.BUILDER_ERROR
+                    for code in (
+                        MaterialStatus.SOURCE_TEXTURE_NOT_FOUND,
+                        MaterialStatus.SOURCE_TEXTURE_MEMBER_NOT_FOUND,
+                        MaterialStatus.SOURCE_TEXTURE_ARCHIVE_NOT_INDEXED,
+                        MaterialStatus.TEXTURE_READ_FAILED,
+                        MaterialStatus.TEXTURE_DECODE_FAILED,
+                        MaterialStatus.BLENDER_IMAGE_CREATION_FAILED,
+                        MaterialStatus.MISSING_TEXTURE,
+                    ):
+                        if code.value in err:
+                            status = code
+                            break
                     if self.material_report is not None and name in self.material_report.entries:
                         prev = self.material_report.entries[name]
                         self.material_report.upsert(
                             prev.with_construction(
                                 outcome=StageOutcome.FAILED,
-                                status=MaterialStatus.BUILDER_ERROR,
-                                error=str(e),
+                                status=status,
+                                error=err,
                             )
                         )
                     mat = None
@@ -652,13 +683,15 @@ class Importer:
             assign_diagnostic = True
 
         if assign_diagnostic:
-            mat = get_unresolved_material()
-            obj[PROP_MATERIAL_DIAG_KEY] = name
             status_val = (
                 diag.status.value
                 if diag is not None
                 else MaterialStatus.UNRESOLVED_CAPABILITY.value
             )
+            mat = get_diagnostic_material(
+                diag.status if diag is not None else MaterialStatus.UNRESOLVED_CAPABILITY
+            )
+            obj[PROP_MATERIAL_DIAG_KEY] = name
             obj[PROP_MATERIAL_DIAG_STATUS] = status_val
             if self.material_report is not None:
                 if name not in self.material_report.entries and diag is not None:

@@ -73,7 +73,8 @@ class CleanPipelineTests(unittest.TestCase):
         blend = {SPN.UseAlphaBlendBool: _param(3, True)}
         self.assertEqual(_alpha_mode(test, True), "CLIP")
         self.assertEqual(_alpha_mode(blend, True), "BLEND")
-        self.assertEqual(_alpha_mode({}, True), "CLIP")
+        # has_alpha alone must not invent CLIP (game-file alpha contracts).
+        self.assertEqual(_alpha_mode({}, True), "OPAQUE")
         self.assertEqual(_alpha_mode({}, False), "OPAQUE")
 
     def test_fh5_has_no_cross_game_fallback(self):

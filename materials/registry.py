@@ -1,8 +1,9 @@
-"""ShaderParameterName hash helpers for paint/glass capability detection.
+"""ShaderParameterName hash helpers for paint/glass observations.
 
-Paint/glass capability uses game-authored SPN hashes. Prefer Instance /
-override maps when present so DFPR layout pollution (shared CB slots) does not
-activate glass on paint shaders.
+Paint/glass hashes are diagnostic/observation signals for MatI families.
+They do not register production capabilities — only CLEAN_SURFACE is selected
+by the authoritative resolver. Prefer Instance / override maps when present so
+DFPR layout pollution (shared CB slots) does not flag glass on paint shaders.
 """
 
 from __future__ import annotations

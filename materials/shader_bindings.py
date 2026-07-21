@@ -26,7 +26,7 @@ GENERATOR_VERSION = 5
 
 # When CarLightScenario does not sample Alpha, merge that treg from a DXIL-proven
 # secondary PSO only. Proven for car_livery: SimpleCarLightScenario samples Alpha
-# t16 at TEXCOORD0 / R and feeds SV_Target alpha (see _shaderprobe scans).
+# t16 at TEXCOORD0 / R and feeds SV_Target alpha (see local DXIL / PSO scans).
 PROVEN_ALPHA_SUPPLEMENT_PSO: dict[str, tuple[str, int]] = {
     "car_livery": ("car_liverySimpleCarLightScenario.pcdxil.pso", 16),
 }

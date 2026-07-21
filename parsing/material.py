@@ -37,8 +37,28 @@ class ShaderParameterName:
     UseUniqueBaseColorSwitchBool = 0xFF73057F  # legacy alias → LiverySwitchBool
     UniqueLiverySwitchBool = 0xF17A77BF
     UserLiverySwitchBool = 0x8A88DE17
+    MaskedLiveryBool = 0xBEAA2F7C
     WeaveColorTintA = 0xB0338A61
     WeaveColorTintB = 0x29D1EC60
+    WeaveMask = 0xBAA9FAA5
+    WeaveNormal = 0xEC13FF23
+    WeaveNormalIntensity = 0x4D033DB0
+    # car_carbonfiber weave UV (CB reg14): proven NameHashes on this shaderbin.
+    # Order in DXIL: TEXCOORD1 → rotate(UV_Orientation°) → * (U_Tiling, V_Tiling).
+    # Do NOT use angleInDegrees_UVtransformationRef / scaler_UVtransformationRef —
+    # those hashes are absent from car_carbonfiber MatI/CBMP.
+    UVOrientation = 0x8B7343AB
+    UTiling = 0x19A7D8F1
+    VTiling = 0x4A3D8375
+    # car_standard Base Color tint (CB reg1 / reg2 / reg19.x) — DXIL proven.
+    BaseColorTint = 0x53A946B6
+    BaseColorTintMode = 0x5EA395A8
+    BaseColorTintMultiplier = 0x6B242133
+    # Legacy / other-family UV-transform refs (not used by car_carbonfiber contract).
+    AngleInDegreesUVTransformationRef = 0x48486772
+    ScalerUVTransformationRef = 0x64F05F40
+    XPanningUVTransformationRef = 0x45321B65
+    YPanningUVTransformationRef = 0xC5C20C7A
 
     DiffuseTextureSwitchBool = 0x05A401E7
     CH1MaskSwitchBool = 0x08B2C17F
@@ -226,6 +246,7 @@ class MaterialSystemObject:
         self.spmp = {}  # hash -> sampler register
         self.default_texture_paths = set()
         self.override_hashes = set()
+        self.parent_material_path = None
 
     def _ingest_parameter_blob(self, parameters_blob, *, into: dict, mark_overrides=False):
         ver = parameters_blob.version
@@ -320,6 +341,7 @@ class MaterialSystemObject:
 
         parent_blob = parent_blobs[0]
         parent_path = parent_blob.stream.read_7bit_string()
+        self.parent_material_path = parent_path
         low = parent_path.lower().replace("/", "\\")
         if low.endswith(".shaderbin"):
             self._load_shaderbin(parent_path, resolver)

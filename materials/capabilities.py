@@ -1,20 +1,23 @@
-"""Material capability registry and probe framework (no bpy).
+"""Material capability registry and UV policies (no bpy).
 
-Capabilities are explicit contracts the rewrite will expand. Probing records
-evidence for selection or rejection without inventing shading behaviour.
+Capability lifecycle (B): constructing a complete typed ``CleanSurfaceCapability``
+*is* selection. ``select_clean_surface_capability`` / ``probe_*`` helpers only
+mirror that payload into ``CapabilityProbeResult`` for diagnostics — they must
+not re-approve or disagree with an already-complete capability.
 
-UV resolution production contract (DXIL-proven):
-    UVChoice_OnCh1_OffCh2 (0x402B8ED0) on car_standard CarLightScenario selects
-    TEXCOORD0 when true and TEXCOORD1 when false for BaseColor/Normal/RMAO/Alpha.
-    Multi-UV without this (or another proven) policy stays unresolved — no min(uv).
-    See MATERIAL_BOUNDARY.md and ``UV_CHOICE_ON_CH1_OFF_CH2``.
+UVChoice remains a proven MatI→TEXCOORD policy used by the authoritative resolver.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .diagnostics import MaterialCapability, ProvenanceDiagnostic
+from .model import (
+    CapabilityProbeResult,
+    CleanSurfaceCapability,
+    MaterialCapabilityKind,
+    ProvenanceDiagnostic,
+)
 
 # FTS NameHash — proven in car_standard CarLightScenario DXIL (not a heuristic).
 UV_CHOICE_ON_CH1_OFF_CH2 = 0x402B8ED0
@@ -26,7 +29,7 @@ UV_CHOICE_FALSE_TEXCOORD = 1
 
 @dataclass(frozen=True)
 class UvPolicyEvidence:
-    """DXIL-proven MatI UV policy for rewrite-stage UV resolution."""
+    """DXIL-proven MatI UV policy for production UV resolution."""
 
     param_hash: int
     param_name: str
@@ -37,7 +40,6 @@ class UvPolicyEvidence:
     evidence: str
 
 
-# Locked rewrite facts. Expand only when a new shader/PSO is traced the same way.
 PROVEN_UV_POLICIES: tuple[UvPolicyEvidence, ...] = (
     UvPolicyEvidence(
         param_hash=UV_CHOICE_ON_CH1_OFF_CH2,
@@ -61,14 +63,9 @@ PROVEN_UV_POLICIES: tuple[UvPolicyEvidence, ...] = (
 
 
 def resolve_uv_choice_texcoord(params: dict) -> tuple[int, ProvenanceDiagnostic] | None:
-    """If MatI carries proven UVChoice, return (texcoord_index, evidence).
-
-    Used by the rewrite UV path. Returns None when the param is absent so callers
-    can fall through to other DXIL-traced policies (never invent a default).
-    """
+    """If MatI carries proven UVChoice, return (texcoord_index, evidence)."""
     p = params.get(UV_CHOICE_ON_CH1_OFF_CH2)
     if p is None:
-        # unsigned/signed key variants
         p = params.get(UV_CHOICE_ON_CH1_OFF_CH2 & 0xFFFFFFFF)
     if p is None or getattr(p, "type", None) != 3:
         return None
@@ -88,72 +85,83 @@ def resolve_uv_choice_texcoord(params: dict) -> tuple[int, ProvenanceDiagnostic]
     )
 
 
-@dataclass(frozen=True)
-class CapabilityProbeResult:
-    capability: MaterialCapability | None
-    selected: bool
-    evidence: tuple[ProvenanceDiagnostic, ...]
-    rejection_reasons: tuple[str, ...] = ()
+def select_clean_surface_capability(
+    *,
+    shader_name: str | None,
+    capability: CleanSurfaceCapability | None,
+    evidence: tuple[ProvenanceDiagnostic, ...] = (),
+    rejection_reasons: tuple[str, ...] = (),
+) -> CapabilityProbeResult:
+    """Finalize clean-surface selection from a complete typed payload.
+
+    Does not take builder success. Incomplete payloads are never selected.
+    """
+    base_evidence = list(evidence) or [
+        ProvenanceDiagnostic(
+            kind="capability",
+            detail=MaterialCapabilityKind.CLEAN_SURFACE.value,
+            source="materials.capabilities",
+        )
+    ]
+    if not shader_name:
+        return CapabilityProbeResult(
+            kind=None,
+            capability=None,
+            evidence=tuple(base_evidence),
+            rejection_reasons=("material has no shader",),
+        )
+    if capability is None:
+        reasons = rejection_reasons or (
+            f"{shader_name}: unsupported by clean Base/Alpha/Normal/RMAO contract",
+        )
+        return CapabilityProbeResult(
+            kind=None,
+            capability=None,
+            evidence=tuple(base_evidence),
+            rejection_reasons=tuple(reasons),
+        )
+    return CapabilityProbeResult(
+        kind=MaterialCapabilityKind.CLEAN_SURFACE,
+        capability=capability,
+        evidence=tuple(base_evidence),
+    )
 
 
+# Back-compat name used by older tests / docs; forwards to typed selector.
 def probe_clean_v3_capability(
     *,
     shader_name: str | None,
-    has_resolvable_surface: bool,
-    evidence_lines: tuple[str, ...] = (),
+    capability: CleanSurfaceCapability | None = None,
+    evidence: tuple[ProvenanceDiagnostic, ...] = (),
+    rejection_reasons: tuple[str, ...] = (),
+    # Deprecated — ignored if present; kept only to fail loud if callers pass it.
+    has_resolvable_surface: bool | None = None,
 ) -> CapabilityProbeResult:
-    """Probe the only production capability: clean v3 Base/Alpha/Normal/RMAO.
-
-    Selection requires a validated surface under that contract (maps and/or
-    proven paint/weave constants). Shader display names are not used as
-    family allowlists — only as report metadata.
-    """
-    evidence = [
-        ProvenanceDiagnostic(
-            kind="capability",
-            detail=MaterialCapability.CLEAN_V3_BASE_ALPHA_NORMAL_RMAO.value,
-            source="materials.pipeline_v3",
+    """Select clean surface from a typed payload (no builder-success input)."""
+    if has_resolvable_surface is not None:
+        raise TypeError(
+            "has_resolvable_surface was removed; pass a CleanSurfaceCapability "
+            "payload (or None) instead"
         )
-    ]
-    for line in evidence_lines:
-        evidence.append(
-            ProvenanceDiagnostic(kind="contract", detail=line, source="pipeline_v3")
-        )
-    if not shader_name:
-        return CapabilityProbeResult(
-            capability=None,
-            selected=False,
-            evidence=tuple(evidence),
-            rejection_reasons=("material has no shader",),
-        )
-    if not has_resolvable_surface:
-        return CapabilityProbeResult(
-            capability=None,
-            selected=False,
-            evidence=tuple(evidence),
-            rejection_reasons=(
-                f"{shader_name}: unsupported by clean Base/Alpha/Normal/RMAO contract",
-            ),
-        )
-    return CapabilityProbeResult(
-        capability=MaterialCapability.CLEAN_V3_BASE_ALPHA_NORMAL_RMAO,
-        selected=True,
-        evidence=tuple(evidence),
+    return select_clean_surface_capability(
+        shader_name=shader_name,
+        capability=capability,
+        evidence=evidence,
+        rejection_reasons=rejection_reasons,
     )
 
 
 def probe_all_capabilities(
     *,
     shader_name: str | None,
-    has_resolvable_surface: bool,
-    evidence_lines: tuple[str, ...] = (),
+    capability: CleanSurfaceCapability | None = None,
+    evidence: tuple[ProvenanceDiagnostic, ...] = (),
+    rejection_reasons: tuple[str, ...] = (),
 ) -> CapabilityProbeResult:
-    """Run registered capability probes; return the first selected result.
-
-    Future rewrite stages append probes here. Order is intentional and stable.
-    """
-    return probe_clean_v3_capability(
+    """Run registered capability probes; return the first selected result."""
+    return select_clean_surface_capability(
         shader_name=shader_name,
-        has_resolvable_surface=has_resolvable_surface,
-        evidence_lines=evidence_lines,
+        capability=capability,
+        evidence=evidence,
+        rejection_reasons=rejection_reasons,
     )

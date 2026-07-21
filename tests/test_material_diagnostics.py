@@ -144,12 +144,20 @@ class MaterialDiagnosticsTests(unittest.TestCase):
         ):
             self.assertFalse(is_fully_supported(status))
 
-    def test_capability_probe_rejects_without_surface(self):
+    def test_capability_probe_rejects_without_payload(self):
         probe = probe_clean_v3_capability(
-            shader_name="car_blackhole", has_resolvable_surface=False
+            shader_name="car_blackhole", capability=None
         )
         self.assertFalse(probe.selected)
         self.assertIsNone(probe.capability)
+        self.assertTrue(probe.rejection_reasons)
+
+    def test_has_resolvable_surface_kwarg_rejected(self):
+        with self.assertRaises(TypeError):
+            probe_clean_v3_capability(
+                shader_name="car_standard",
+                has_resolvable_surface=True,
+            )
 
     def test_uv_choice_contract_true_ch1_false_ch2(self):
         missing = resolve_uv_choice_texcoord({})

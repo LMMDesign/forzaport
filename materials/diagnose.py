@@ -1,8 +1,7 @@
 """Diagnose a parsed MatI through capability resolution (no bpy).
 
-Wraps CleanMaterialBuilder without changing shading output: collects source
-TXMP/parameter inventories, records which inputs the current builder consumes,
-and classifies MaterialStatus for the import report.
+Runs the authoritative resolver once and classifies MaterialStatus for the
+import report. Does not feed builder success into capability selection.
 """
 
 from __future__ import annotations
@@ -11,7 +10,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..parsing.material import ShaderParameterName as SPN
-from .capabilities import probe_all_capabilities
 from .diagnostics import (
     AssignmentOutcome,
     MaterialDiagnostic,
@@ -22,22 +20,28 @@ from .diagnostics import (
     TextureBindingDiagnostic,
     classify_capability_status,
 )
+from .model import (
+    InvalidMaterialBinding,
+    MaterialResolution,
+    MissingMaterialProvenance,
+    UnsupportedMaterialCapability,
+)
 from .name_hashes import MaterialNameError, name_for_hash
 from .pipeline_v3 import (
     CleanMaterialBuilder,
     MaterialSpec,
-    MaterialTranslateError,
     _ALPHA_NAMES,
     _BASE_NAMES,
     _NORMAL_NAMES,
     _RMAO_NAMES,
     _binding_uv,
-    _path_exists,
+    material_spec_from_resolved,
 )
-from .shader_bindings import ShaderBindingError, extract_bindings
-from .txmp_semantics import try_semantics_for_txmp_hash
+from .resolver import path_exists
+from .texture_source import resolve_texture_source
+from .txmp_semantics import CLEAN_SURFACE_TXMP_NAMES, try_semantics_for_txmp_hash
 
-# Instance parameters the clean v3 builder reads (NameHash ints).
+# Instance parameters the clean-surface capability reads (NameHash ints).
 _CONSUMED_PARAM_HASHES = frozenset(
     {
         int(SPN.UniqueBaseColorSwitchBool),
@@ -47,12 +51,18 @@ _CONSUMED_PARAM_HASHES = frozenset(
         int(SPN.PaintColorGroupColorParam),
         int(SPN.PaintColorColorParam),
         int(SPN.UniqueLiverySwitchBool),
+        int(SPN.MaskedLiveryBool),
         int(SPN.WeaveColorTintA),
         int(SPN.WeaveColorTintB),
+        int(SPN.WeaveMask),
         int(SPN.UseAlphaTestBool),
         int(SPN.UseAlphaBlendBool),
         int(SPN.AlphaTransparencyBool),
     }
+)
+
+_CONTRACT_TXMP = CLEAN_SURFACE_TXMP_NAMES | (
+    _BASE_NAMES | _ALPHA_NAMES | _NORMAL_NAMES | _RMAO_NAMES
 )
 
 
@@ -62,6 +72,7 @@ class MaterialResolveResult:
 
     spec: MaterialSpec | None
     diagnostic: MaterialDiagnostic
+    resolution: MaterialResolution | None = None
 
 
 def _raw_value_summary(param) -> Any:
@@ -85,9 +96,8 @@ def _parameter_diagnostics(params: dict) -> tuple[ParameterDiagnostic, ...]:
         p = params[h]
         name = name_for_hash(h)
         consumed = (h & 0xFFFFFFFF) in {x & 0xFFFFFFFF for x in _CONSUMED_PARAM_HASHES}
-        # TXMP/SPMP consumed separately via texture_bindings.
         interpreted = None
-        if name and name in (_BASE_NAMES | _ALPHA_NAMES | _NORMAL_NAMES | _RMAO_NAMES):
+        if name and name in _CONTRACT_TXMP:
             interpreted = f"txmp_allowlist:{name}"
             consumed = True
         elif consumed and name:
@@ -119,6 +129,8 @@ def _texture_diagnostics(
     bindings,
     params: dict,
     consumed_hashes: set[int],
+    binding_decisions=(),
+    selected_base_color_source: str | None = None,
 ) -> tuple[tuple[TextureBindingDiagnostic, ...], tuple[int, ...], bool, bool]:
     """Inventory every TXMP; flag unresolved known semantics and missing files."""
     txmp = getattr(material, "txmp", None) or {}
@@ -126,12 +138,18 @@ def _texture_diagnostics(
     unresolved: list[int] = []
     missing_texture = False
     missing_provenance = False
+    decisions_by_hash = {
+        int(d.slot.param_hash) & 0xFFFFFFFF: d for d in (binding_decisions or ())
+    }
 
     for h in sorted(txmp.keys(), key=lambda x: x & 0xFFFFFFFF):
         treg = txmp[h]
         p = params.get(h)
         path = getattr(p, "path", "") or "" if p is not None else ""
-        exists = bool(path) and _path_exists(path, resolver)
+        src = resolve_texture_source(path, resolver) if path else None
+        exists = bool(src and src.exists) if src is not None else (
+            bool(path) and path_exists(path, resolver)
+        )
         name = name_for_hash(h)
         if name is None:
             missing_provenance = True
@@ -142,6 +160,14 @@ def _texture_diagnostics(
             _binding_uv(bind, params, txmp_name=name) if bind is not None else None
         )
         consumed = (h & 0xFFFFFFFF) in consumed_hashes
+        decision = decisions_by_hash.get(h & 0xFFFFFFFF)
+        activation = decision.activation.value if decision is not None else None
+        activation_reason = decision.reason if decision is not None else None
+        controlling = (
+            tuple(int(x) & 0xFFFFFFFF for x in decision.controlling_parameters)
+            if decision is not None
+            else ()
+        )
         unresolved_reason = None
         alpha_interp = None
         color_space = None
@@ -154,15 +180,25 @@ def _texture_diagnostics(
                 (sem.channel_roles or {}).get("opacity") or "x"
             )
 
+        source_failure = None
         if not path:
             unresolved_reason = "empty_path"
             if role is not None and not (sem and sem.is_fx_layer):
                 unresolved.append(h & 0xFFFFFFFF)
         elif not exists:
             missing_texture = True
-            unresolved_reason = "missing_file"
+            source_failure = (
+                src.failure.value if src is not None and src.failure is not None else None
+            )
+            unresolved_reason = source_failure or "SOURCE_TEXTURE_NOT_FOUND"
             if role is not None and not (sem and sem.is_fx_layer):
                 unresolved.append(h & 0xFFFFFFFF)
+        elif activation == "inactive_placeholder":
+            unresolved_reason = "inactive_placeholder"
+            # Not an error — retained for diagnostics only.
+        elif activation == "conditional_unresolved":
+            unresolved_reason = "conditional_unresolved_activation"
+            unresolved.append(h & 0xFFFFFFFF)
         elif sem is not None and sem.is_fx_layer:
             unresolved_reason = "fx_layer_inactive"
         elif role is not None and not consumed:
@@ -170,7 +206,7 @@ def _texture_diagnostics(
             unresolved.append(h & 0xFFFFFFFF)
         elif role is None and name is not None and not consumed:
             unresolved_reason = "unbound_unknown_or_inactive"
-        elif uv is None and name in (_BASE_NAMES | _NORMAL_NAMES | _RMAO_NAMES | _ALPHA_NAMES):
+        elif uv is None and name in _CONTRACT_TXMP:
             if not consumed:
                 unresolved_reason = unresolved_reason or "ambiguous_or_missing_uv"
 
@@ -199,6 +235,22 @@ def _texture_diagnostics(
                     source="materials.shader_bindings",
                 )
             )
+        if decision is not None:
+            prov.append(
+                ProvenanceDiagnostic(
+                    kind="activation",
+                    detail=f"{activation}: {activation_reason}",
+                    source="materials.binding_activation",
+                )
+            )
+        if src is not None:
+            prov.extend(src.provenance)
+
+        attempt_rows = tuple(
+            f"{a.kind}:{a.location}:{'hit' if a.hit else 'miss'}"
+            + (f":{a.detail}" if a.detail else "")
+            for a in (src.attempts if src is not None else ())
+        )
 
         rows.append(
             TextureBindingDiagnostic(
@@ -217,28 +269,44 @@ def _texture_diagnostics(
                 consumed_by_builder=consumed,
                 unresolved_reason=unresolved_reason,
                 provenance=tuple(prov),
+                canonical_path=src.canonical_game_path if src else None,
+                source_kind=src.kind.value if src else None,
+                archive_path=src.archive_path if src else None,
+                archive_member=src.archive_member if src else None,
+                filesystem_path=src.filesystem_path if src else None,
+                source_failure=source_failure,
+                attempts=attempt_rows,
+                activation=activation,
+                activation_reason=activation_reason,
+                controlling_parameters=controlling,
+                selected_base_color_source=selected_base_color_source,
             )
         )
 
     return tuple(rows), tuple(sorted(set(unresolved))), missing_texture, missing_provenance
 
 
-def _consumed_slot_hashes(spec: MaterialSpec | None) -> set[int]:
-    if spec is None:
-        return set()
-    return {
-        slot.param_hash & 0xFFFFFFFF
-        for slot in spec.textures
-        if slot is not None
-    }
-
-
 def _display_name(instance_key: str) -> str:
-    # fh6|Plastic_Smooth|v4-... → Plastic_Smooth
     parts = instance_key.split("|")
     if len(parts) >= 2:
         return parts[1]
     return instance_key
+
+
+def _as_diag_evidence(evidence) -> tuple[ProvenanceDiagnostic, ...]:
+    rows: list[ProvenanceDiagnostic] = []
+    for ev in evidence or ():
+        if isinstance(ev, ProvenanceDiagnostic):
+            rows.append(ev)
+        else:
+            rows.append(
+                ProvenanceDiagnostic(
+                    kind=getattr(ev, "kind", "evidence"),
+                    detail=getattr(ev, "detail", str(ev)),
+                    source=getattr(ev, "source", ""),
+                )
+            )
+    return tuple(rows)
 
 
 def resolve_with_diagnostics(
@@ -247,82 +315,102 @@ def resolve_with_diagnostics(
     material,
     resolver=None,
 ) -> MaterialResolveResult:
-    """Run clean v3 capability resolution and return spec + diagnostic."""
+    """Run one authoritative resolve; return MaterialSpec adapter + diagnostic."""
     shader_name = getattr(material, "shader_name", None)
     params = getattr(material, "parameters", None) or {}
-    cbmp = getattr(material, "cbmp", None) or {}
     param_rows = _parameter_diagnostics(params)
 
-    bindings = None
-    binding_error: str | None = None
+    resolution: MaterialResolution | None = None
+    resolve_error: str | None = None
     name_error: str | None = None
-    translate_error: str | None = None
-    spec: MaterialSpec | None = None
+    binding_error: str | None = None
 
     try:
-        media = builder._media(resolver)
-        bindings = extract_bindings(
-            media_root=media,
-            shader_name=shader_name or "",
-            params=params,
-            cbmp=cbmp,
-            game_key="fh6",
-        )
-    except (ShaderBindingError, MaterialTranslateError, OSError, RuntimeError) as exc:
-        binding_error = str(exc)
-
-    try:
-        spec = builder.build(instance_key, material, resolver=resolver)
+        resolution = builder.resolve(instance_key, material, resolver=resolver)
     except MaterialNameError as exc:
         name_error = str(exc)
-    except ShaderBindingError as exc:
-        binding_error = binding_error or str(exc)
-    except MaterialTranslateError as exc:
-        translate_error = str(exc)
-    except Exception as exc:  # noqa: BLE001 — surface as builder/capability failure
-        translate_error = f"{type(exc).__name__}: {exc}"
+    except Exception as exc:  # noqa: BLE001 — surface as unresolved capability
+        resolve_error = f"{type(exc).__name__}: {exc}"
 
-    consumed = _consumed_slot_hashes(spec)
+    spec: MaterialSpec | None = None
+    consumed: set[int] = set()
+    bindings = None
+    probe_selected = False
+    probe_evidence: tuple[ProvenanceDiagnostic, ...] = ()
+    probe_reasons: tuple[str, ...] = ()
+    capability_value: str | None = None
+    failure_exc = None
+
+    if resolution is not None:
+        bindings = resolution.bindings
+        consumed = set(resolution.consumed_txmp_hashes)
+        probe = resolution.probe
+        probe_selected = resolution.is_selected
+        probe_evidence = _as_diag_evidence(probe.evidence)
+        probe_reasons = probe.rejection_reasons
+        if probe.kind is not None:
+            capability_value = probe.kind.value
+        failure_exc = resolution.failure_exception
+        if isinstance(failure_exc, MissingMaterialProvenance):
+            name_error = name_error or str(failure_exc)
+        elif isinstance(failure_exc, InvalidMaterialBinding):
+            binding_error = str(failure_exc)
+        if resolution.resolved is not None and probe_selected:
+            spec = material_spec_from_resolved(resolution.resolved)
+
+    selected_base = None
+    if (
+        resolution is not None
+        and resolution.resolved is not None
+        and resolution.resolved.capability is not None
+    ):
+        selected_base = resolution.resolved.capability.base_color_source.kind.value
+
     tex_rows, unresolved, missing_tex, missing_prov = _texture_diagnostics(
         material=material,
         resolver=resolver,
         bindings=bindings,
         params=params,
         consumed_hashes=consumed,
+        binding_decisions=(
+            resolution.texture_binding_decisions if resolution is not None else ()
+        ),
+        selected_base_color_source=selected_base,
     )
     if name_error:
         missing_prov = True
 
-    has_surface = bool(spec is not None and spec.valid)
-    evidence_lines: list[str] = []
-    if spec is not None:
-        for slot in spec.textures:
-            evidence_lines.extend(slot.evidence)
-
-    probe = probe_all_capabilities(
-        shader_name=shader_name,
-        has_resolvable_surface=has_surface,
-        evidence_lines=tuple(evidence_lines),
-    )
-
-    invalid_binding = binding_error is not None and spec is None
+    has_surface = spec is not None and spec.valid
+    invalid_binding = binding_error is not None and not has_surface
     status = classify_capability_status(
-        capability_selected=probe.selected,
+        capability_selected=probe_selected,
         unresolved_semantics=unresolved,
         missing_texture=missing_tex and not has_surface,
         missing_provenance=missing_prov and not has_surface,
         invalid_binding=invalid_binding,
     )
-    # Prefer more specific failure when build raised without a surface.
     if not has_surface:
         if name_error:
             status = MaterialStatus.MISSING_PROVENANCE
-        elif binding_error and not translate_error:
+        elif binding_error:
             status = MaterialStatus.INVALID_BINDING
-        elif translate_error:
+        elif isinstance(failure_exc, UnsupportedMaterialCapability) or resolve_error:
             status = MaterialStatus.UNRESOLVED_CAPABILITY
         elif missing_tex:
-            status = MaterialStatus.MISSING_TEXTURE
+            # Prefer the most common structured source failure among bindings.
+            fail_codes = [
+                tb.source_failure or tb.unresolved_reason
+                for tb in tex_rows
+                if not tb.path_exists and (tb.source_failure or tb.unresolved_reason)
+            ]
+            preferred = None
+            for code in fail_codes:
+                try:
+                    preferred = MaterialStatus(code)
+                    break
+                except ValueError:
+                    continue
+            status = preferred or MaterialStatus.MISSING_TEXTURE
         else:
             status = MaterialStatus.UNRESOLVED_CAPABILITY
 
@@ -335,12 +423,15 @@ def resolve_with_diagnostics(
     if binding_error:
         errors.append(binding_error)
         failure_reason = failure_reason or binding_error
-    if translate_error:
-        errors.append(translate_error)
-        failure_reason = failure_reason or translate_error
-    for reason in probe.rejection_reasons:
+    if resolve_error:
+        errors.append(resolve_error)
+        failure_reason = failure_reason or resolve_error
+    if failure_exc is not None and str(failure_exc) not in errors:
+        errors.append(str(failure_exc))
+        failure_reason = failure_reason or str(failure_exc)
+    for reason in probe_reasons:
         if reason not in errors:
-            warnings.append(reason) if has_surface else errors.append(reason)
+            (warnings if has_surface else errors).append(reason)
         failure_reason = failure_reason or reason
     if unresolved and has_surface:
         warnings.append(
@@ -349,9 +440,9 @@ def resolve_with_diagnostics(
 
     capability_outcome = (
         StageOutcome.OK
-        if probe.selected and status is MaterialStatus.SUPPORTED
+        if probe_selected and status is MaterialStatus.SUPPORTED
         else StageOutcome.PARTIAL
-        if probe.selected
+        if probe_selected
         else StageOutcome.FAILED
     )
 
@@ -361,16 +452,12 @@ def resolve_with_diagnostics(
         shader_name=shader_name,
         material_name_hash=None,
         shader_name_hash=None,
-        capability=(
-            probe.capability.value
-            if probe.capability is not None
-            else None
-        ),
+        capability=capability_value,
         status=status,
         instance_parameters=param_rows,
         texture_bindings=tex_rows,
         unresolved_semantics=unresolved,
-        evidence=probe.evidence,
+        evidence=probe_evidence,
         warnings=tuple(warnings),
         errors=tuple(errors),
         parsing_outcome=StageOutcome.OK,
@@ -379,4 +466,8 @@ def resolve_with_diagnostics(
         assignment_outcome=AssignmentOutcome.SKIPPED,
         failure_reason=failure_reason,
     )
-    return MaterialResolveResult(spec=spec if has_surface else None, diagnostic=diag)
+    return MaterialResolveResult(
+        spec=spec if has_surface else None,
+        diagnostic=diag,
+        resolution=resolution,
+    )

@@ -1,0 +1,122 @@
+{
+  "contract_id": "car_carbonfiber",
+  "version": "1.0.0-b1.5",
+  "status": "corpus_proven_production_observed_branches",
+  "status_label": "corpus-proven production contract for observed approved branches (UniqueLivery=false only)",
+  "identity": {
+    "shader_name": "car_carbonfiber",
+    "shaderbin_sha256": "f18954b13a8d117a6e442f153c2138cec6f31154d80430d0b86c458725a597b3",
+    "permutation": "CarLightScenario",
+    "archive_hint": "media/cars/_library/shaders/car_carbonfiber.zip"
+  },
+  "production": {
+    "approved_rules": [
+      "unique_livery_false_only",
+      "weave_mask_lerp_tint_a_b",
+      "weave_uv_orientation_u_v_tiling_cb_reg14",
+      "weave_normal_preferred_over_flat_normal",
+      "rmao_packing_rgb_texcoord0"
+    ],
+    "pending_review_rules": [
+      "unique_livery_true_or_absent",
+      "flat_normal_only_no_weave_normal",
+      "weavemask_anisotropy_tangent_blend",
+      "base_plus_weave_normal_blend_full_ssa"
+    ],
+    "compatibility_fallback": "other families only; car_carbonfiber exact SHA must not use fallback"
+  },
+  "uv": {
+    "weave_mask_and_normal": {
+      "texcoord": "TEXCOORD1",
+      "order": "MeshUV -> RotateUV(UV_Orientation) -> ScaleUV(U_Tiling, V_Tiling)",
+      "params": {
+        "UV_Orientation": {"name_hash": "0x8B7343AB", "cb": "reg14.x"},
+        "U_Tiling": {"name_hash": "0x19A7D8F1", "cb": "reg14.y"},
+        "V_Tiling": {"name_hash": "0x4A3D8375", "cb": "reg14.z"}
+      },
+      "fail_closed_if_absent": ["U_Tiling", "V_Tiling", "UV_Orientation"],
+      "forbidden_unproven_identity_fallback": true,
+      "wrong_hashes_not_used": [
+        "0x48486772 angleInDegrees_UVtransformationRef",
+        "0x64F05F40 scaler_UVtransformationRef"
+      ]
+    },
+    "rmao_and_base_normal": {
+      "texcoord": "TEXCOORD0",
+      "transform": "identity (DXIL samples loadInput TEXCOORD0 directly)"
+    }
+  },
+  "weavemask_usage": {
+    "base_color_mix": "approved",
+    "anisotropy_tangent_blend": "pending_principled",
+    "unique_livery_factor": "rejected_when_true"
+  },
+  "tints": {
+    "note": "When WeaveColorTintA==WeaveColorTintB (common on T.50, ~#191919), lerp is constant; do not invent contrast"
+  },
+  "outputs": {
+    "base_color": {
+      "expression": "Mix(ConstantColor(WeaveColorTintA), ConstantColor(WeaveColorTintB), Channel(TextureSample(WeaveMask), 'r')); then Multiply(., AO.B)",
+      "dxil": "albedo = lerp(WeaveColorTintA, WeaveColorTintB, WeaveMask.R); BaseColorAlpha t17 sample does not contribute when UniqueLiverySwitchBool=false",
+      "inactive": "BaseColorAlpha TXMP (t17) — inactive under UniqueLivery=false"
+    },
+    "normal": {
+      "source": "WeaveNormal TXMP (t36) — Principled Normal when present",
+      "expression": "NormalDecode(TextureSample(WeaveNormal), strength=WeaveNormal_Intensity)",
+      "color_space": "Non-Color",
+      "unpack": "xy = sample.xy*2-1; z = sqrt(saturate(1-x^2-y^2)); xy *= WeaveNormal_Intensity (CB reg15.w)",
+      "base_normal_t21": "Also sampled in DXIL on TEXCOORD0; full NormalBlend(base, weave) pending. Principled uses WeaveNormal only (restores weave relief when A≈B).",
+      "note": "Legacy _prefer kept flat Normal (t21) over WeaveNormal (t36) — fixed in eval_car_carbonfiber."
+    },
+    "roughness": { "source": "RoughMetalAO", "channel": "r/x", "color_space": "Non-Color", "uv": "TEXCOORD0 (fixed, not UVChoice)" },
+    "metallic": { "source": "RoughMetalAO", "channel": "g/y", "color_space": "Non-Color" },
+    "ao": { "source": "RoughMetalAO", "channel": "b/z", "color_space": "Non-Color", "principled_prep": "Multiply into Base Color" }
+  },
+  "uv": {
+    "policy": "weave_uv_fixed_texcoord1_rotate_scale_pan",
+    "texcoord": "TEXCOORD1 (fixed for WeaveMask + WeaveNormal — NOT UVChoice, NOT TEXCOORD0)",
+    "transform_order": ["rotate", "scale", "pan"],
+    "angle_name_hash": "0x48486772",
+    "angle_name": "angleInDegrees_UVtransformationRef",
+    "angle_cb": "reg14.x (degrees; DXIL converts * pi/180)",
+    "scale_name_hash": "0x64F05F40",
+    "scale_name": "scaler_UVtransformationRef",
+    "scale_cb": "reg14.y, reg14.z (uniform scaler applied to both)",
+    "pan_x_name_hash": "0x45321B65",
+    "pan_x_name": "xPanning_UVtransformationRef",
+    "pan_y_name_hash": "0xC5C20C7A",
+    "pan_y_name": "yPanning_UVtransformationRef",
+    "defaults_when_absent": { "angle_degrees": 0.0, "scale": [1.0, 1.0], "pan": [0.0, 0.0] },
+    "rmao_uv": "TEXCOORD0 (fixed, ACTIVE, not affected by weave transform)"
+  },
+  "gate": {
+    "name": "UniqueLiverySwitchBool",
+    "name_hash": "0xF17A77BF",
+    "cbuffer": "reg22.y",
+    "effect": "false -> weave composite (approved); true/absent -> livery-mix branch (pending_review; reject)"
+  },
+  "sampler": {
+    "default_address": ["REPEAT", "REPEAT"],
+    "filter": "LINEAR"
+  },
+  "ir_expressions": [
+    "Mix",
+    "ConstantColor",
+    "Channel",
+    "TextureSample",
+    "Multiply",
+    "NormalDecode",
+    "MeshUV",
+    "RotateUV",
+    "ScaleUV",
+    "OffsetUV"
+  ],
+  "blender_backend": {
+    "entry": "materials.nodes_v3.build_material",
+    "compiler": "materials.ir_compiler.compile_forza_material_ir",
+    "constraint": "compiler must not inspect MatI/TXMP/shader filenames; decisions live in evaluated ForzaMaterialIR",
+    "rotation_node": "ShaderNodeVectorRotate (Z_AXIS) inserted before tiling scale in materials.nodes_v3._texture_node when slot.rotation_degrees != 0",
+    "pan_node": "ShaderNodeVectorMath ADD inserted after tiling scale when slot.pan != (0,0)",
+    "normal_strength": "ShaderNodeNormalMap Strength input set from CleanSurfaceCapability.normal_strength when != 1.0"
+  }
+}

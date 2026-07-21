@@ -232,6 +232,20 @@ class GamePathResolver:
                 )
             except OSError:
                 has_car_zips = False
+        has_shared_library_zips = False
+        if media:
+            shared = os.path.join(media, "_library")
+            if os.path.isdir(shared):
+                try:
+                    has_shared_library_zips = any(
+                        n.lower() in ("textures.zip", "materials.zip")
+                        or n.lower().startswith("textures_")
+                        or n.lower().startswith("materials_")
+                        for n in os.listdir(shared)
+                        if n.lower().endswith(".zip")
+                    )
+                except OSError:
+                    has_shared_library_zips = False
         want_zipfs = bool(
             car_zip_path
             or (
@@ -244,6 +258,7 @@ class GamePathResolver:
                         )
                     )
                     or has_car_zips
+                    or has_shared_library_zips
                 )
             )
             or (

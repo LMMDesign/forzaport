@@ -13,6 +13,8 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any, Iterable
 
+from .model import MaterialCapabilityKind, ProvenanceDiagnostic
+
 
 class MaterialStatus(Enum):
     SUPPORTED = "SUPPORTED"
@@ -20,6 +22,12 @@ class MaterialStatus(Enum):
     UNRESOLVED_CAPABILITY = "UNRESOLVED_CAPABILITY"
     MISSING_PROVENANCE = "MISSING_PROVENANCE"
     MISSING_TEXTURE = "MISSING_TEXTURE"
+    SOURCE_TEXTURE_NOT_FOUND = "SOURCE_TEXTURE_NOT_FOUND"
+    SOURCE_TEXTURE_MEMBER_NOT_FOUND = "SOURCE_TEXTURE_MEMBER_NOT_FOUND"
+    SOURCE_TEXTURE_ARCHIVE_NOT_INDEXED = "SOURCE_TEXTURE_ARCHIVE_NOT_INDEXED"
+    TEXTURE_READ_FAILED = "TEXTURE_READ_FAILED"
+    TEXTURE_DECODE_FAILED = "TEXTURE_DECODE_FAILED"
+    BLENDER_IMAGE_CREATION_FAILED = "BLENDER_IMAGE_CREATION_FAILED"
     INVALID_BINDING = "INVALID_BINDING"
     BUILDER_ERROR = "BUILDER_ERROR"
 
@@ -40,19 +48,12 @@ class AssignmentOutcome(Enum):
 
 
 class MaterialCapability(Enum):
-    """Registered material capabilities (expand during the rewrite)."""
+    """Registered material capabilities (aligned with MaterialCapabilityKind)."""
 
-    CLEAN_V3_BASE_ALPHA_NORMAL_RMAO = "clean_v3.base_alpha_normal_rmao"
+    CLEAN_V3_BASE_ALPHA_NORMAL_RMAO = MaterialCapabilityKind.CLEAN_SURFACE.value
 
 
 DIAGNOSTIC_MATERIAL_NAME = "FORZAPORT_UNRESOLVED_MATERIAL"
-
-
-@dataclass(frozen=True)
-class ProvenanceDiagnostic:
-    kind: str
-    detail: str
-    source: str = ""
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,19 @@ class TextureBindingDiagnostic:
     consumed_by_builder: bool
     unresolved_reason: str | None
     provenance: tuple[ProvenanceDiagnostic, ...] = ()
+    # Typed texture-source layer (optional; empty when unresolved at path stage)
+    canonical_path: str | None = None
+    source_kind: str | None = None
+    archive_path: str | None = None
+    archive_member: str | None = None
+    filesystem_path: str | None = None
+    source_failure: str | None = None
+    attempts: tuple[str, ...] = ()
+    # Binding activation (presence ≠ use)
+    activation: str | None = None
+    activation_reason: str | None = None
+    controlling_parameters: tuple[int, ...] = ()
+    selected_base_color_source: str | None = None
 
 
 @dataclass(frozen=True)
@@ -208,8 +222,26 @@ def is_unresolved_family(status: MaterialStatus) -> bool:
         MaterialStatus.UNRESOLVED_CAPABILITY,
         MaterialStatus.MISSING_PROVENANCE,
         MaterialStatus.MISSING_TEXTURE,
+        MaterialStatus.SOURCE_TEXTURE_NOT_FOUND,
+        MaterialStatus.SOURCE_TEXTURE_MEMBER_NOT_FOUND,
+        MaterialStatus.SOURCE_TEXTURE_ARCHIVE_NOT_INDEXED,
+        MaterialStatus.TEXTURE_READ_FAILED,
+        MaterialStatus.TEXTURE_DECODE_FAILED,
+        MaterialStatus.BLENDER_IMAGE_CREATION_FAILED,
         MaterialStatus.INVALID_BINDING,
         MaterialStatus.BUILDER_ERROR,
+    )
+
+
+def is_missing_texture_family(status: MaterialStatus) -> bool:
+    return status in (
+        MaterialStatus.MISSING_TEXTURE,
+        MaterialStatus.SOURCE_TEXTURE_NOT_FOUND,
+        MaterialStatus.SOURCE_TEXTURE_MEMBER_NOT_FOUND,
+        MaterialStatus.SOURCE_TEXTURE_ARCHIVE_NOT_INDEXED,
+        MaterialStatus.TEXTURE_READ_FAILED,
+        MaterialStatus.TEXTURE_DECODE_FAILED,
+        MaterialStatus.BLENDER_IMAGE_CREATION_FAILED,
     )
 
 
@@ -323,6 +355,14 @@ class ImportMaterialReport:
             "unresolved": 0,
             "builder_errors": 0,
             "objects_with_diagnostic_materials": 0,
+            "texture_bindings_encountered": 0,
+            "resolved_loose_textures": 0,
+            "resolved_archive_textures": 0,
+            "source_textures_not_found": 0,
+            "archive_members_not_found": 0,
+            "texture_read_failures": 0,
+            "texture_decode_failures": 0,
+            "blender_image_creation_failures": 0,
         }
         for diag in self.entries.values():
             if diag.status is MaterialStatus.SUPPORTED:
@@ -338,6 +378,24 @@ class ImportMaterialReport:
                 counts["objects_with_diagnostic_materials"] += len(
                     diag.affected_object_names
                 )
+            for tb in diag.texture_bindings:
+                counts["texture_bindings_encountered"] += 1
+                kind = (tb.source_kind or "").lower()
+                if tb.path_exists and kind == "loose_file":
+                    counts["resolved_loose_textures"] += 1
+                elif tb.path_exists and kind == "zip_member":
+                    counts["resolved_archive_textures"] += 1
+                fail = tb.source_failure or tb.unresolved_reason or ""
+                if fail in ("SOURCE_TEXTURE_NOT_FOUND", "missing_file"):
+                    counts["source_textures_not_found"] += 1
+                elif fail == "SOURCE_TEXTURE_MEMBER_NOT_FOUND":
+                    counts["archive_members_not_found"] += 1
+                elif fail == "TEXTURE_READ_FAILED":
+                    counts["texture_read_failures"] += 1
+                elif fail == "TEXTURE_DECODE_FAILED":
+                    counts["texture_decode_failures"] += 1
+                elif fail == "BLENDER_IMAGE_CREATION_FAILED":
+                    counts["blender_image_creation_failures"] += 1
         return counts
 
     def count_by_status(self) -> dict[str, int]:
@@ -449,6 +507,13 @@ def report_from_json(data: dict[str, Any]) -> ImportMaterialReport:
                     provenance=tuple(
                         ProvenanceDiagnostic(**ev) for ev in (t.get("provenance") or ())
                     ),
+                    canonical_path=t.get("canonical_path"),
+                    source_kind=t.get("source_kind"),
+                    archive_path=t.get("archive_path"),
+                    archive_member=t.get("archive_member"),
+                    filesystem_path=t.get("filesystem_path"),
+                    source_failure=t.get("source_failure"),
+                    attempts=tuple(t.get("attempts") or ()),
                 )
                 for t in (row.get("texture_bindings") or ())
             ),
