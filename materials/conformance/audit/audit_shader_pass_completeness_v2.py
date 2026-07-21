@@ -41,8 +41,6 @@ from io_import_forza_carbin.materials.dxil_sample_sites import (  # noqa: E402
 from io_import_forza_carbin.materials.serialized_material_shader_schema import (  # noqa: E402
     build_serialized_schema_from_bytes,
 )
-from io_import_forza_carbin.parsing.material import MaterialSystemObject  # noqa: E402
-from io_import_forza_carbin.parsing.binary import BinaryStream  # noqa: E402
 from io_import_forza_carbin.materials.pass_contracts import (  # noqa: E402
     list_contracted_shas,
     load_shader_pass_contract,
@@ -136,17 +134,9 @@ def _cbmp_from_shaderbin(sb_bytes: bytes) -> dict[int, int]:
     if not sb_bytes:
         return {}
     try:
-        mso = MaterialSystemObject()
-        mso.deserialize(BinaryStream(memoryview(sb_bytes)))
-        if mso.cbmp:
-            return {int(k) & 0xFFFFFFFF: int(v) for k, v in mso.cbmp.items()}
-    except Exception:
-        pass
-    try:
         schema = build_serialized_schema_from_bytes(sb_bytes)
-        entries = (schema.cbmp or {}).get("entries") or []
         out: dict[int, int] = {}
-        for e in entries:
+        for e in (schema.cbmp or {}).get("entries") or []:
             nh = e.get("name_hash")
             if not nh:
                 continue

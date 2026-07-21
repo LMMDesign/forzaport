@@ -25,6 +25,7 @@ class DxilSampleSite:
     branch_predicates: list[str]
     feeds_sv_target_alpha: bool
     feeds_discard: bool
+    branch_status: str = "NO_PREDICATE_RECOVERED"
     evidence: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -158,9 +159,9 @@ def extract_sample_sites(
             branch_predicates=predicates,
             feeds_sv_target_alpha=feeds_alpha and not feeds_discard,
             feeds_discard=feeds_discard,
+            branch_status=branch_status,
             evidence=evidence,
         )
-        # Attach recovered status for inventory consumers (non-schema field via evidence).
         site.evidence.append(f"control_analysis_status={branch_status}")
         sites.append(site)
     return sites
