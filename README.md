@@ -101,12 +101,16 @@ Materials are built **directly from game data** (fail closed):
    typed UV expressions) into `EvaluatedMaterialSampleSites`, then
    `ForzaMaterialIR`, then a minimal Blender graph.
 
-For exact contracted shaderbin SHAs, evaluated sample sites are authoritative
-and lower into `ForzaMaterialIR` (`FULL_SAMPLE_SITE_IR`). Production does **not**
-discover semantics via register-keyed `TextureBinding` merges
-(`PassMergeSpec` / `_merge_pass_sites`). A `LEGACY_COMPATIBILITY_VIEW` may exist
-only for explicitly non-contracted or diagnostic paths and fails closed if
-reached for a contracted SHA.
+For exact contracted shaderbin SHAs, evaluated sample sites feed
+`ForzaMaterialIR` (`runtime_architecture=SAMPLE_SITE_IR`). This does **not**
+mean semantic coverage is complete: many MAIN_SURFACE_SHADING/VISIBILITY
+sample sites remain `PARTIAL_UNRESOLVED` until every relevant site has a proven
+disposition. Production does **not** discover semantics via register-keyed
+`TextureBinding` merges (`PassMergeSpec` / `_merge_pass_sites`).
+
+**Accuracy:** Primary contracts currently import a selected BaseColor/Normal/
+RMAO/Alpha subset. Remaining relevant raw sites are unresolved until
+control-dependence, forward-use, and disposition recovery close the gate.
 
 Static DXIL analysis is cached by game + shaderbin SHA + full PSO member path +
 PSO SHA + parser version + variant + pass + stage. Instance evaluation is never

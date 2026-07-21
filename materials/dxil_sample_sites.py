@@ -55,8 +55,14 @@ def extract_sample_sites(
     ps_txt: str,
     *,
     cbmp: dict[int, int] | None = None,
+    recover_control_deps: bool = True,
 ) -> list[DxilSampleSite]:
-    """Return one row per DXIL texture sample instruction."""
+    """Return one row per DXIL texture sample instruction.
+
+    When ``recover_control_deps`` is true and ``cbmp`` is provided, CFG
+    control-dependence analysis attributes branch predicates. Empty predicate
+    lists remain ``NO_PREDICATE_RECOVERED`` — never renamed unconditional.
+    """
     cbmp = cbmp or {}
     lines = ps_txt.splitlines()
     sig = sb._parse_signature(lines, "; Input signature:")
@@ -90,9 +96,32 @@ def extract_sample_sites(
         for c in range(4):
             sample_targets |= sb._extract_id_for_comp(ps_txt, res, c)
         predicates: list[str] = []
+        data_hashes: list[int] = []
         for h, ids in bool_loads.items():
             if sb._bool_gates_target(ids, sample_targets, defs):
                 predicates.append(f"cb_bool:0x{h & 0xFFFFFFFF:08X}")
+                data_hashes.append(int(h))
+
+        branch_status = "NO_PREDICATE_RECOVERED"
+        if recover_control_deps and cbmp:
+            from .dxil_control_deps import analyze_sample_control
+
+            analysis = analyze_sample_control(
+                ps_txt,
+                instruction_id=f"%{res}",
+                cbmp=cbmp,
+                data_dep_hashes=data_hashes,
+            )
+            branch_status = analysis.status
+            for row in analysis.control_predicates:
+                if row.param_hash is not None:
+                    tag = f"ctrl:0x{row.param_hash & 0xFFFFFFFF:08X}:{row.polarity}"
+                    if tag not in predicates:
+                        predicates.append(tag)
+        elif predicates:
+            branch_status = "EXECUTABLE_PREDICATE"
+        elif not cbmp:
+            branch_status = "NO_PREDICATE_RECOVERED"
 
         feeds_alpha = sb._feeds_alpha_or_discard(ps_txt, sample_targets, defs)
         feeds_discard = bool(sb._DISCARD.search(ps_txt)) and feeds_alpha
@@ -111,27 +140,29 @@ def extract_sample_sites(
             f"instruction=%{res}",
             f"t{treg}",
             f"comps={comps}",
+            f"branch_status={branch_status}",
         ]
         if feeds_alpha:
             evidence.append("feeds_sv_target_alpha_or_discard_chain")
 
-        sites.append(
-            DxilSampleSite(
-                instruction_index=idx,
-                instruction_id=f"%{res}",
-                operation=op,
-                texture_register=treg,
-                sampler_register=smp.get(smp_hnd),
-                sampled_components=comps,
-                coord_ssa=(c0.strip(), c1.strip()),
-                texcoord_sources=texcoords,
-                uv_expression=_uv_expression(texcoords, (c0.strip(), c1.strip())),
-                branch_predicates=predicates,
-                feeds_sv_target_alpha=feeds_alpha and not feeds_discard,
-                feeds_discard=feeds_discard,
-                evidence=evidence,
-            )
+        site = DxilSampleSite(
+            instruction_index=idx,
+            instruction_id=f"%{res}",
+            operation=op,
+            texture_register=treg,
+            sampler_register=smp.get(smp_hnd),
+            sampled_components=comps,
+            coord_ssa=(c0.strip(), c1.strip()),
+            texcoord_sources=texcoords,
+            uv_expression=_uv_expression(texcoords, (c0.strip(), c1.strip())),
+            branch_predicates=predicates,
+            feeds_sv_target_alpha=feeds_alpha and not feeds_discard,
+            feeds_discard=feeds_discard,
+            evidence=evidence,
         )
+        # Attach recovered status for inventory consumers (non-schema field via evidence).
+        site.evidence.append(f"control_analysis_status={branch_status}")
+        sites.append(site)
     return sites
 
 
