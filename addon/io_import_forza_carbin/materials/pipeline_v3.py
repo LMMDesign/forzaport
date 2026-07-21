@@ -272,8 +272,15 @@ class CleanMaterialBuilder:
     def _media(self, resolver) -> str:
         return self._resolver._media(resolver)
 
-    def resolve(self, name, material, resolver=None) -> MaterialResolution:
-        return self._resolver.resolve(name=name, material=material, resolver=resolver)
+    def resolve(
+        self, name, material, resolver=None, evaluation_context=None
+    ) -> MaterialResolution:
+        return self._resolver.resolve(
+            name=name,
+            material=material,
+            resolver=resolver,
+            evaluation_context=evaluation_context,
+        )
 
     def build(self, name, material, resolver=None) -> MaterialSpec:
         result = self.resolve(name, material, resolver=resolver)

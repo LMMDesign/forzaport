@@ -1039,8 +1039,11 @@ def _analyze_named_pass(
         variant=variant,
         stage=stage,
     )
+    from .pipeline_metrics import METRICS
+
     hit = _STATIC_PASS_MEM.get(mem_key)
     if hit is not None:
+        METRICS.record_cache("static_pass_analysis", hit=True)
         return hit
 
     disk_key = _content_key(
@@ -1050,9 +1053,11 @@ def _analyze_named_pass(
     )
     cached = _load_cache(disk_key)
     if cached is not None and cached.pass_name == pass_name:
+        METRICS.record_cache("static_pass_analysis", hit=True)
         _STATIC_PASS_MEM[mem_key] = cached
         return cached
 
+    METRICS.record_cache("static_pass_analysis", hit=False)
     print(
         f"Forza: DXIL analyze {shader_name}/{variant or 'root'}/{pass_name} "
         f"(static; cached after this)",
@@ -1296,6 +1301,29 @@ def extract_bindings(
     For exact contracted SHAs, ``EvaluatedMaterialSampleSites`` is authoritative.
     ``PassMergeSpec`` / ``_merge_pass_sites`` are never used on contracted SHAs.
     """
+    from .pipeline_metrics import METRICS
+
+    METRICS.record_call("extract_bindings")
+    with METRICS.stage("extract_bindings"):
+        return _extract_bindings_impl(
+            media_root=media_root,
+            shader_name=shader_name,
+            params=params,
+            cbmp=cbmp,
+            game_key=game_key,
+            material_instance_key=material_instance_key,
+        )
+
+
+def _extract_bindings_impl(
+    *,
+    media_root: str,
+    shader_name: str,
+    params: dict,
+    cbmp: dict[int, int],
+    game_key: str | None = None,
+    material_instance_key: str | None = None,
+) -> ShaderBindings:
     from .legacy_binding_bridge import is_contracted_shaderbin_sha
     from .pass_contracts import load_shader_pass_contract
     from .sample_site_eval import evaluate_material_sample_sites
@@ -1370,6 +1398,7 @@ def extract_bindings(
             params=params,
             pso_members={PRIMARY_RASTER_PASS: primary.pso_member},
             pso_shas={PRIMARY_RASTER_PASS: primary.pso_sha256},
+            pass_contract=load_shader_pass_contract(primary.shaderbin_sha256),
         )
         if evaluated.variant.status == "REJECTED":
             msg = f"variant_rejected:{evaluated.variant.provenance}"

@@ -254,6 +254,9 @@ def _sample(
     resolver,
     address=None,
     evidence: tuple[PD, ...] = (),
+    sample_site_id: str | None = None,
+    texture_register: int | None = None,
+    sampler_register: int | None = None,
 ) -> TextureSample:
     src = resolve_texture_source(path, resolver) if path else None
     if src is None or not src.exists:
@@ -269,8 +272,11 @@ def _sample(
             address_v=(address or {}).get("V", "REPEAT"),
         ),
         evidence=evidence,
+        sample_site_id=sample_site_id,
+        texture_register=texture_register,
+        sampler_register=sampler_register,
     )
-    return TextureSample(sample=expr)
+    return TextureSample(sample=expr, sample_site_id=sample_site_id)
 
 
 def evaluate_car_carbonfiber(
@@ -280,6 +286,7 @@ def evaluate_car_carbonfiber(
     resolver,
     media_root: str,
     production_mode: bool = True,
+    evaluation_context=None,
 ) -> ForzaMaterialIR:
     """Evaluate one car_carbonfiber instance into ForzaMaterialIR."""
     shader_name = getattr(material, "shader_name", None)
@@ -288,14 +295,22 @@ def evaluate_car_carbonfiber(
     txmp = getattr(material, "txmp", None) or {}
     spmp = getattr(material, "spmp", None) or {}
 
-    bindings = extract_bindings(
-        media_root=media_root,
-        shader_name="car_carbonfiber",
-        params=params,
-        cbmp=cbmp,
-        game_key="fh6",
-    )
-    sha = (bindings.source_hashes or {}).get("shaderbin_sha256")
+    if evaluation_context is not None:
+        bindings = evaluation_context.bindings
+        sha = evaluation_context.shader.shaderbin_sha256
+        if evaluation_context.txmp:
+            txmp = dict(evaluation_context.txmp)
+        if evaluation_context.spmp:
+            spmp = dict(evaluation_context.spmp)
+    else:
+        bindings = extract_bindings(
+            media_root=media_root,
+            shader_name="car_carbonfiber",
+            params=params,
+            cbmp=cbmp,
+            game_key="fh6",
+        )
+        sha = (bindings.source_hashes or {}).get("shaderbin_sha256")
     if not is_car_carbonfiber_contract_identity(shader_name, sha):
         raise RuntimeError(
             f"car_carbonfiber contract identity mismatch: shader={shader_name!r} sha={sha!r}"
@@ -422,6 +437,9 @@ def evaluate_car_carbonfiber(
             f"sample_site:{wm_site_id}",
         )
         + weave_uv_evidence,
+        sample_site_id=wm_site_id,
+        texture_register=int(wm_treg),
+        sampler_register=int(wm_samp) if wm_samp is not None else None,
     )
     mask_channel = Channel(
         source=mask_sample,
@@ -481,6 +499,9 @@ def evaluate_car_carbonfiber(
                 f"DXIL:t{wn_treg}:TEXCOORD1 (SAME weave UV as WeaveMask)",
                 f"sample_site:{wn_site_id}",
             ),
+            sample_site_id=wn_site_id,
+            texture_register=int(wn_treg),
+            sampler_register=int(wn_samp) if wn_samp is not None else None,
         )
         normal = NormalDecode(
             source=wn_sample,
@@ -546,6 +567,9 @@ def evaluate_car_carbonfiber(
             f"sample_site:{rmao_site_id}",
             "packing:R=roughness,G=metallic,B=AO",
         ),
+        sample_site_id=rmao_site_id,
+        texture_register=int(rmao_treg),
+        sampler_register=int(rmao_samp) if rmao_samp is not None else None,
     )
     roughness = Channel(source=rmao_sample, channel="r", evidence=_pd("RMAO.R=roughness"))
     metallic = Channel(source=rmao_sample, channel="g", evidence=_pd("RMAO.G=metallic"))

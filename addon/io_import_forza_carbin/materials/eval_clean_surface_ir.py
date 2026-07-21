@@ -27,7 +27,7 @@ from .model import (
     ProvenanceDiagnostic as PD,
 )
 from .resolver import MaterialCapabilityResolver
-from .route_model import PRODUCTION_IR_SHADER_NAMES, has_ir_evaluator
+from .route_model import has_ir_evaluator
 from .shader_bindings import extract_bindings
 from .texture_source import resolve_texture_source
 
@@ -57,15 +57,26 @@ def _pd(*details: str, kind: str = "contract") -> tuple[PD, ...]:
 
 
 def is_clean_surface_ir_identity(shader_name: str | None, shaderbin_sha256: str | None) -> bool:
-    if not has_ir_evaluator(shaderbin_sha256, shader_name):
+    if not shaderbin_sha256 or not has_ir_evaluator(shaderbin_sha256):
         return False
     # Dedicated evaluators own these overlays.
     if (shader_name or "").lower() in ("car_standard", "car_carbonfiber"):
         return False
-    return True
+    expected = _SHA_TO_FAMILY.get(shaderbin_sha256)
+    if expected is None:
+        return False
+    return (shader_name or "").lower() == expected
+
+
+_FAMILY_TO_SHA: dict[str, str] = {fam: sha for sha, fam in _SHA_TO_FAMILY.items()}
+
+
+def _exact_family_identity(family: str, shader_name, sha) -> bool:
+    return (shader_name or "").lower() == family and sha == _FAMILY_TO_SHA.get(family)
 
 
 def _site_id_from_slot(slot) -> str | None:
+    """Compatibility: recover site id only via exact evidence tag written from site."""
     for e in getattr(slot, "evidence", None) or ():
         detail = getattr(e, "detail", "") or ""
         if detail.startswith("sample_site:"):
@@ -74,6 +85,8 @@ def _site_id_from_slot(slot) -> str | None:
 
 
 def _uv_from_slot(slot, params: dict):
+    """Fallback UV from derived slot — not the authoritative contracted path."""
+    del params
     texcoord = int(str(slot.texcoord).replace("TEXCOORD", "") or "0")
     uv: object = MeshUV(
         index=texcoord,
@@ -88,7 +101,34 @@ def _uv_from_slot(slot, params: dict):
     return uv
 
 
-def _sample_slot(slot, *, channels, color_space, resolver, params):
+def _sample_slot(slot, *, channels, color_space, resolver, params, evaluated_sites=None):
+    from .site_ir_sample import find_site_for_slot, sample_from_evaluated_site
+
+    site = find_site_for_slot(evaluated_sites, slot) if evaluated_sites is not None else None
+    if site is not None:
+        addr = getattr(slot, "address", None)
+        address = None
+        if addr is not None:
+            try:
+                address = {"U": addr["U"], "V": addr["V"]}
+            except Exception:
+                address = {
+                    "U": getattr(addr, "get", lambda *_: "REPEAT")("U", "REPEAT"),
+                    "V": getattr(addr, "get", lambda *_: "REPEAT")("V", "REPEAT"),
+                }
+        return sample_from_evaluated_site(
+            site,
+            path=slot.path,
+            binding_name_hash=int(slot.param_hash or 0),
+            channels=tuple(channels),
+            color_space=color_space,
+            resolver=resolver,
+            params=params,
+            address=address,
+            extra_evidence=tuple(slot.evidence or ()),
+        )
+
+    # Derived-slot fallback (tests without evaluated sites).
     src = resolve_texture_source(slot.path, resolver)
     if src is None:
         return None, f"texture unresolved: {slot.path}"
@@ -97,7 +137,7 @@ def _sample_slot(slot, *, channels, color_space, resolver, params):
     v = "REPEAT"
     if addr is not None:
         try:
-            u = addr["U"]  # MappingProxyType / dict
+            u = addr["U"]
             v = addr["V"]
         except Exception:
             u = getattr(addr, "get", lambda *_: "REPEAT")("U", "REPEAT")
@@ -125,6 +165,7 @@ def evaluate_clean_surface_ir(
     resolver,
     media_root: str,
     production_mode: bool = True,
+    evaluation_context=None,
 ) -> ForzaMaterialIR:
     """Evaluate a CleanSurface family from sample-site-backed capability → IR."""
     del production_mode  # reserved for future pending-review gates
@@ -132,14 +173,18 @@ def evaluate_clean_surface_ir(
     params = getattr(material, "parameters", None) or {}
     cbmp = getattr(material, "cbmp", None) or {}
 
-    bindings = extract_bindings(
-        media_root=media_root,
-        shader_name=shader_name,
-        params=params,
-        cbmp=cbmp,
-        game_key="fh6",
-    )
-    sha = (bindings.source_hashes or {}).get("shaderbin_sha256") or ""
+    if evaluation_context is not None:
+        bindings = evaluation_context.bindings
+        sha = evaluation_context.shader.shaderbin_sha256 or ""
+    else:
+        bindings = extract_bindings(
+            media_root=media_root,
+            shader_name=shader_name,
+            params=params,
+            cbmp=cbmp,
+            game_key="fh6",
+        )
+        sha = (bindings.source_hashes or {}).get("shaderbin_sha256") or ""
     if not is_clean_surface_ir_identity(shader_name, sha):
         raise RuntimeError(
             f"clean_surface_ir identity mismatch: shader={shader_name!r} sha={sha!r}"
@@ -182,18 +227,83 @@ def evaluate_clean_surface_ir(
             ),
         )
 
-    cap_resolver = MaterialCapabilityResolver(media_root=media_root, game_key="fh6")
-    resolution = cap_resolver.resolve(name=name, material=material, resolver=resolver)
-    if not resolution.is_selected or resolution.resolved is None:
-        reasons = resolution.probe.rejection_reasons or (f"{shader_name} unsupported",)
-        return ForzaMaterialIR(
-            shader=identity,
-            evidence=tuple(evidence) + tuple(resolution.probe.evidence),
-            rejection_reasons=tuple(reasons),
+    def _cap_from_sites(ctx):
+        from .binding_activation import decide_base_color_source
+        from .evaluation_context import IR_ROUTE_SLOTS_DEFERRED
+        from .model import make_clean_surface_capability
+        from .resolver import _alpha_mode
+        from .site_role_map import collect_site_role_bindings, slot_view_from_binding
+
+        roles = collect_site_role_bindings(ctx)
+        base_slot = slot_view_from_binding(roles["base"]) if "base" in roles else None
+        weave_slot = (
+            slot_view_from_binding(roles["weave_mask"]) if "weave_mask" in roles else None
+        )
+        normal_slot = (
+            slot_view_from_binding(roles["normal"]) if "normal" in roles else None
+        )
+        rmao_slot = slot_view_from_binding(roles["rmao"]) if "rmao" in roles else None
+        alpha_slot = slot_view_from_binding(roles["alpha"]) if "alpha" in roles else None
+        base_source, decisions = decide_base_color_source(
+            shader_name=shader_name,
+            params=params,
+            base_map=base_slot,
+            weave_mask=weave_slot,
+            stock_paint=None,
+            shaderbin_hash=sha,
+        )
+        return make_clean_surface_capability(
+            base_color_source=base_source,
+            alpha_map=alpha_slot,
+            normal_map=normal_slot,
+            rmao_map=rmao_slot,
+            alpha_mode=_alpha_mode(params, alpha_slot is not None),
+            alpha_threshold=0.5,
+            evidence=tuple(evidence)
+            + (
+                PD(
+                    kind="route",
+                    detail=IR_ROUTE_SLOTS_DEFERRED,
+                    source="materials.eval_clean_surface_ir",
+                ),
+            ),
+            texture_binding_decisions=decisions,
         )
 
-    cap = resolution.resolved.capability
-    evidence.extend(list(cap.evidence))
+    if evaluation_context is not None:
+        cap = _cap_from_sites(evaluation_context)
+        evidence.extend(list(cap.evidence))
+    else:
+        cap_resolver = MaterialCapabilityResolver(media_root=media_root, game_key="fh6")
+        resolution = cap_resolver.resolve(
+            name=name,
+            material=material,
+            resolver=resolver,
+            evaluation_context=None,
+        )
+        if not resolution.is_selected or resolution.resolved is None:
+            reasons = resolution.probe.rejection_reasons or (f"{shader_name} unsupported",)
+            return ForzaMaterialIR(
+                shader=identity,
+                evidence=tuple(evidence) + tuple(resolution.probe.evidence),
+                rejection_reasons=tuple(reasons),
+            )
+        from .evaluation_context import capability_is_ir_deferred
+
+        if capability_is_ir_deferred(resolution.resolved.capability):
+            ctx = resolution.evaluation_context
+            if ctx is None:
+                return ForzaMaterialIR(
+                    shader=identity,
+                    evidence=tuple(evidence),
+                    rejection_reasons=(f"{shader_name}: IR deferred without context",),
+                )
+            cap = _cap_from_sites(ctx)
+        else:
+            cap = resolution.resolved.capability
+        evidence.extend(list(cap.evidence))
+
+    evaluated_sites = getattr(bindings, "evaluated_sites", None)
 
     base_color = None
     src = cap.base_color_source
@@ -204,6 +314,7 @@ def evaluate_clean_surface_ir(
             color_space="sRGB",
             resolver=resolver,
             params=params,
+            evaluated_sites=evaluated_sites,
         )
         if reject:
             return ForzaMaterialIR(
@@ -240,6 +351,7 @@ def evaluate_clean_surface_ir(
             color_space="Non-Color",
             resolver=resolver,
             params=params,
+            evaluated_sites=evaluated_sites,
         )
         if reject:
             return ForzaMaterialIR(
@@ -257,6 +369,7 @@ def evaluate_clean_surface_ir(
             color_space="Non-Color",
             resolver=resolver,
             params=params,
+            evaluated_sites=evaluated_sites,
         )
         if reject:
             return ForzaMaterialIR(
@@ -286,6 +399,7 @@ def evaluate_clean_surface_ir(
             color_space="Non-Color",
             resolver=resolver,
             params=params,
+            evaluated_sites=evaluated_sites,
         )
         if reject:
             return ForzaMaterialIR(
@@ -353,61 +467,43 @@ def evaluate_car_livery(**kwargs):
 
 
 def is_car_label_contract_identity(shader_name, sha):
-    return (shader_name or "").lower() == "car_label" and has_ir_evaluator(sha, shader_name)
+    return _exact_family_identity("car_label", shader_name, sha)
 
 
 def is_car_standard_emissive_contract_identity(shader_name, sha):
-    return (shader_name or "").lower() == "car_standard_emissive" and has_ir_evaluator(
-        sha, shader_name
-    )
+    return _exact_family_identity("car_standard_emissive", shader_name, sha)
 
 
 def is_car_standard_fabric_contract_identity(shader_name, sha):
-    return (shader_name or "").lower() == "car_standard_fabric" and has_ir_evaluator(
-        sha, shader_name
-    )
+    return _exact_family_identity("car_standard_fabric", shader_name, sha)
 
 
 def is_car_automotive_paint_contract_identity(shader_name, sha):
-    return (shader_name or "").lower() == "car_automotive_paint" and has_ir_evaluator(
-        sha, shader_name
-    )
+    return _exact_family_identity("car_automotive_paint", shader_name, sha)
 
 
 def is_car_standard_coated_contract_identity(shader_name, sha):
-    return (shader_name or "").lower() == "car_standard_coated" and has_ir_evaluator(
-        sha, shader_name
-    )
+    return _exact_family_identity("car_standard_coated", shader_name, sha)
 
 
 def is_car_glass_detailed_contract_identity(shader_name, sha):
-    return (shader_name or "").lower() == "car_glass_detailed" and has_ir_evaluator(
-        sha, shader_name
-    )
+    return _exact_family_identity("car_glass_detailed", shader_name, sha)
 
 
 def is_car_reflector_contract_identity(shader_name, sha):
-    return (shader_name or "").lower() == "car_reflector" and has_ir_evaluator(
-        sha, shader_name
-    )
+    return _exact_family_identity("car_reflector", shader_name, sha)
 
 
 def is_car_brakerotor_contract_identity(shader_name, sha):
-    return (shader_name or "").lower() == "car_brakerotor" and has_ir_evaluator(
-        sha, shader_name
-    )
+    return _exact_family_identity("car_brakerotor", shader_name, sha)
 
 
 def is_car_livery_transmissive_contract_identity(shader_name, sha):
-    return (shader_name or "").lower() == "car_livery_transmissive" and has_ir_evaluator(
-        sha, shader_name
-    )
+    return _exact_family_identity("car_livery_transmissive", shader_name, sha)
 
 
 def is_car_livery_contract_identity(shader_name, sha):
-    return (shader_name or "").lower() == "car_livery" and has_ir_evaluator(
-        sha, shader_name
-    )
+    return _exact_family_identity("car_livery", shader_name, sha)
 
 
 # SHA constants expected by nodes_v3 _build_via_ir_contract

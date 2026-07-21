@@ -9,7 +9,7 @@ import types
 import unittest
 from pathlib import Path
 
-_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "addon", "io_import_forza_carbin"))
 _pkg = types.ModuleType("io_import_forza_carbin")
 _pkg.__path__ = [_ROOT]
 sys.modules.setdefault("io_import_forza_carbin", _pkg)
@@ -27,7 +27,7 @@ from io_import_forza_carbin.materials.site_coverage import (  # noqa: E402
 WS = Path(__file__).resolve().parents[3]
 BRANCH = (
     WS
-    / "reports/material-conformance/runs"
+    / "reports/archive/2026-07-21-conformance-runs/runs"
     / "2026-07-21_1447_shader-pass-completeness-post-cutover-provenance_950c1d2"
     / "data/shader_sample_site_table_branch_status.json"
 )

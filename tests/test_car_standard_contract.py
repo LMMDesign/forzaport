@@ -9,7 +9,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "addon", "io_import_forza_carbin"))
 _pkg = types.ModuleType("io_import_forza_carbin")
 _pkg.__path__ = [_ROOT]
 sys.modules.setdefault("io_import_forza_carbin", _pkg)
@@ -717,10 +717,11 @@ class CarStandardOpaqueCoverageGateTests(unittest.TestCase):
         import json
         from pathlib import Path
 
-        p = Path(
-            r"H:\Documents\Forza Import\reports\material-conformance\runs"
-            r"\2026-07-21_id39-grille-coverage_reopen\data"
-            r"\mask_orientation_samples.json"
+        p = (
+            Path(__file__).resolve().parents[3]
+            / "reports/archive/2026-07-21-conformance-runs/runs"
+            / "2026-07-21_id39-grille-coverage_reopen/data"
+            / "mask_orientation_samples.json"
         )
         if not p.is_file():
             self.skipTest("mask orientation artifact missing")

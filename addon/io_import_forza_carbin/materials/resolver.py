@@ -29,7 +29,7 @@ from .model import (
 )
 from .name_hashes import MaterialNameError, require_name
 from .registry import params_have_glass_scalars, params_have_paint_scalars
-from .shader_bindings import extract_bindings, resolve_binding_uv
+from .shader_bindings import resolve_binding_uv
 from .pass_contracts import PRIMARY_RASTER_PASS
 from .txmp_semantics import semantics_for_txmp_hash
 
@@ -273,13 +273,46 @@ class MaterialCapabilityResolver:
             return media
         raise MaterialResolutionError("FH6 Media root is required for DXIL bindings")
 
-    def resolve(self, *, name: str, material, resolver=None) -> MaterialResolution:
+    def resolve(
+        self,
+        *,
+        name: str,
+        material,
+        resolver=None,
+        evaluation_context=None,
+        derive_slots: bool | None = None,
+    ) -> MaterialResolution:
+        from .evaluation_context import create_material_evaluation_context
+        from .pipeline_metrics import METRICS
+
+        METRICS.record_call("MaterialCapabilityResolver.resolve")
+        with METRICS.stage("MaterialCapabilityResolver.resolve"):
+            return self._resolve_body(
+                name=name,
+                material=material,
+                resolver=resolver,
+                evaluation_context=evaluation_context,
+                create_material_evaluation_context=create_material_evaluation_context,
+                derive_slots=derive_slots,
+            )
+
+    def _resolve_body(
+        self,
+        *,
+        name: str,
+        material,
+        resolver=None,
+        evaluation_context=None,
+        create_material_evaluation_context,
+        derive_slots: bool | None = None,
+    ) -> MaterialResolution:
         shader_name = getattr(material, "shader_name", None)
         params = getattr(material, "parameters", None) or {}
         txmp = getattr(material, "txmp", None) or {}
         cbmp = getattr(material, "cbmp", None) or {}
         spmp = getattr(material, "spmp", None) or {}
         overrides = getattr(material, "override_hashes", None) or set()
+        ctx = evaluation_context
 
         observation_ev: list[ProvenanceDiagnostic] = [
             ProvenanceDiagnostic(
@@ -309,16 +342,23 @@ class MaterialCapabilityResolver:
             return MaterialResolution.rejected(
                 reasons=("material has no shader",),
                 evidence=tuple(observation_ev),
+                evaluation_context=ctx,
             )
 
         try:
-            bindings = extract_bindings(
-                media_root=self._media(resolver),
-                shader_name=shader_name,
-                params=params,
-                cbmp=cbmp,
-                game_key="fh6",
-            )
+            # Bindings / sample sites are built exactly once via the context.
+            if ctx is None:
+                ctx = create_material_evaluation_context(
+                    instance_key=name,
+                    material=material,
+                    media_root=self._media(resolver),
+                    game_key="fh6",
+                )
+            bindings = ctx.bindings
+            if bindings is None:
+                raise MaterialResolutionError(
+                    "MaterialEvaluationContext missing bindings"
+                )
         except Exception as exc:
             msg = f"{name} ({shader_name}): DXIL/bindings failed: {exc}"
             print(f"Forza material ERROR: {msg}", flush=True)
@@ -327,6 +367,7 @@ class MaterialCapabilityResolver:
                 reasons=(msg,),
                 evidence=tuple(observation_ev),
                 failure_exception=fail,
+                evaluation_context=ctx,
             )
 
         shaderbin_sha = str(
@@ -355,6 +396,62 @@ class MaterialCapabilityResolver:
             "FULL_SAMPLE_SITE_IR",
             "EVALUATED_SAMPLE_SITES",
         ) and getattr(bindings, "evaluated_sites", None) is not None
+
+        from .route_model import has_ir_evaluator
+
+        # Exact-SHA IR route: sites → ForzaMaterialIR without slot derivation.
+        # Pass derive_slots=True for diagnostics / UV foundation / MaterialSpec.
+        ir_direct = (
+            use_sample_sites
+            and auth_model == "FULL_SAMPLE_SITE_IR"
+            and has_ir_evaluator(shaderbin_sha)
+            and derive_slots is not True
+        )
+
+        if ir_direct:
+            from .evaluation_context import IR_ROUTE_SLOTS_DEFERRED
+            from .model import ResolvedBaseColorSource
+
+            observation_ev.append(
+                ProvenanceDiagnostic(
+                    kind="route",
+                    detail=IR_ROUTE_SLOTS_DEFERRED,
+                    source="materials.resolver",
+                )
+            )
+            # Stub capability for MaterialResolution invariants only — evaluators
+            # must consume evaluated_sites, not these empty maps.
+            base_source = ResolvedBaseColorSource(
+                kind=BaseColorSourceKind.MATERIAL_CONSTANT,
+                color=(1.0, 1.0, 1.0, 1.0),
+                evidence=_ev(IR_ROUTE_SLOTS_DEFERRED),
+            )
+            draft = make_clean_surface_capability(
+                base_color_source=base_source,
+                alpha_map=None,
+                normal_map=None,
+                rmao_map=None,
+                alpha_mode=_alpha_mode(params, False),
+                alpha_threshold=0.5,
+                evidence=tuple(observation_ev),
+                texture_binding_decisions=(),
+            )
+            resolved = ResolvedMaterial(
+                name=name,
+                game_key="fh6",
+                shader_name=shader_name,
+                capability_kind=_KIND,
+                capability=draft,
+            )
+            return MaterialResolution.selected(
+                resolved,
+                evidence=draft.evidence,
+                contract_errors=(),
+                consumed_txmp_hashes=frozenset(),
+                bindings=bindings,
+                texture_binding_decisions=(),
+                evaluation_context=ctx,
+            )
 
         if use_sample_sites:
             from .sample_site_slots import slots_from_evaluated_sites
@@ -682,6 +779,7 @@ class MaterialCapabilityResolver:
                     bindings=bindings,
                     failure_exception=UnsupportedMaterialCapability(msg),
                     texture_binding_decisions=binding_decisions,
+                    evaluation_context=ctx,
                 )
             if normal_map or rmao_map or alpha_map:
                 base_source = ResolvedBaseColorSource(
@@ -707,6 +805,7 @@ class MaterialCapabilityResolver:
                     bindings=bindings,
                     failure_exception=UnsupportedMaterialCapability(msg),
                     texture_binding_decisions=binding_decisions,
+                    evaluation_context=ctx,
                 )
 
         for slot in (
@@ -757,6 +856,7 @@ class MaterialCapabilityResolver:
                 bindings=bindings,
                 failure_exception=UnsupportedMaterialCapability(msg),
                 texture_binding_decisions=binding_decisions,
+                evaluation_context=ctx,
             )
 
         if errors:
@@ -780,7 +880,56 @@ class MaterialCapabilityResolver:
             consumed_txmp_hashes=frozenset(consumed),
             bindings=bindings,
             texture_binding_decisions=binding_decisions,
+            evaluation_context=ctx,
         )
 
 
 path_exists = _path_exists
+
+
+def derive_capability_slots(
+    *,
+    name: str,
+    material,
+    resolver,
+    evaluation_context,
+    media_root: str | None = None,
+    game_key: str = "fh6",
+):
+    """Explicit compatibility request: build slots + full capability from sites.
+
+    Production IR evaluators must not call this. Used by diagnostics / MaterialSpec
+    / legacy node paths that still need CleanSurfaceCapability.
+    """
+    from .pipeline_metrics import METRICS
+
+    with METRICS.stage("derive_capability_slots"):
+        cap_resolver = MaterialCapabilityResolver(
+            media_root=media_root or getattr(evaluation_context, "media_root", None),
+            game_key=game_key,
+        )
+        # Force the non-IR slot path by temporarily treating as needing slots:
+        # re-enter resolve but skip ir_direct by using a flag on context... 
+        # Simpler: call slots_from_evaluated_sites directly then assemble.
+        from .sample_site_slots import slots_from_evaluated_sites
+
+        bindings = evaluation_context.bindings
+        params = dict(evaluation_context.effective_parameters)
+        txmp = dict(evaluation_context.txmp)
+        spmp = dict(evaluation_context.spmp)
+        overrides = getattr(material, "override_hashes", None) or set()
+        shader_name = evaluation_context.source.shader_name
+        slot_maps, site_errors, site_ev = slots_from_evaluated_sites(
+            bindings=bindings,
+            params=params,
+            txmp=txmp,
+            spmp=spmp,
+            overrides=overrides,
+            shader_name=shader_name,
+            resolver=resolver,
+            slot_builder=_slot,
+            prefer_fn=_prefer,
+            path_exists=_path_exists,
+            capability_kind=_KIND,
+        )
+        return slot_maps, site_errors, site_ev

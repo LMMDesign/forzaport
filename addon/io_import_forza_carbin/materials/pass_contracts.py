@@ -68,9 +68,9 @@ def load_contract_index() -> dict[str, Any]:
 
 
 @lru_cache(maxsize=64)
-def load_shader_pass_contract(shaderbin_sha256: str | None) -> dict[str, Any] | None:
-    if not shaderbin_sha256:
-        return None
+def _load_shader_pass_contract_cached(
+    shaderbin_sha256: str,
+) -> dict[str, Any] | None:
     index = load_contract_index()
     entry = next(
         (
@@ -91,6 +91,31 @@ def load_shader_pass_contract(shaderbin_sha256: str | None) -> dict[str, Any] | 
             f"contract file SHA mismatch: {path} vs key {shaderbin_sha256}"
         )
     return data
+
+
+def load_shader_pass_contract(shaderbin_sha256: str | None) -> dict[str, Any] | None:
+    from .pipeline_metrics import METRICS
+
+    METRICS.record_call("load_shader_pass_contract")
+    if not shaderbin_sha256:
+        return None
+    info_before = _load_shader_pass_contract_cached.cache_info()
+    data = _load_shader_pass_contract_cached(shaderbin_sha256)
+    info_after = _load_shader_pass_contract_cached.cache_info()
+    METRICS.record_cache(
+        "load_shader_pass_contract",
+        hit=info_after.hits > info_before.hits,
+    )
+    return data
+
+
+# Tests call ``load_shader_pass_contract.cache_clear()``.
+load_shader_pass_contract.cache_clear = (  # type: ignore[attr-defined]
+    _load_shader_pass_contract_cached.cache_clear
+)
+load_shader_pass_contract.cache_info = (  # type: ignore[attr-defined]
+    _load_shader_pass_contract_cached.cache_info
+)
 
 
 def list_contracted_shas() -> tuple[str, ...]:

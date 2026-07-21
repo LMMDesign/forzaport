@@ -522,22 +522,6 @@ def _build_resolved_material(resolved: ResolvedMaterial, resolver, image_cache):
     return material
 
 
-_IR_CONTRACT_SHADERS: dict[str, str] = {
-    "car_standard": "eval_car_standard",
-    "car_carbonfiber": "eval_car_carbonfiber",
-    "car_label": "eval_clean_surface_ir",
-    "car_standard_emissive": "eval_clean_surface_ir",
-    "car_standard_fabric": "eval_clean_surface_ir",
-    "car_automotive_paint": "eval_clean_surface_ir",
-    "car_standard_coated": "eval_clean_surface_ir",
-    "car_glass_detailed": "eval_clean_surface_ir",
-    "car_reflector": "eval_clean_surface_ir",
-    "car_brakerotor": "eval_clean_surface_ir",
-    "car_livery_transmissive": "eval_clean_surface_ir",
-    "car_livery": "eval_clean_surface_ir",
-}
-
-
 def _build_via_ir_contract(
     resolved: ResolvedMaterial,
     resolver,
@@ -545,66 +529,65 @@ def _build_via_ir_contract(
     *,
     source_material,
     media_root: str,
-    module_name: str,
+    evaluation_context=None,
 ):
-    import importlib
-
+    from .evaluation_context import create_material_evaluation_context
     from .ir_compiler import compile_forza_material_ir
-    from .shader_bindings import extract_bindings
-
-    mod = importlib.import_module(f".{module_name}", __package__)
-    shaderbin_sha256 = getattr(mod, f"{resolved.shader_name.upper()}_SHADERBIN_SHA256")
-    is_contract_identity = getattr(
-        mod, f"is_{resolved.shader_name}_contract_identity"
-    )
-    evaluate = getattr(mod, f"evaluate_{resolved.shader_name}")
+    from .pipeline_metrics import METRICS
+    from .shader_implementation import get_shader_implementation
 
     if source_material is None or not media_root:
         raise RuntimeError(
             f"{resolved.shader_name} contract selected: require source_material + "
             f"media_root (compatibility fallback must not compile {resolved.shader_name})"
         )
-    params = getattr(source_material, "parameters", None) or {}
-    cbmp = getattr(source_material, "cbmp", None) or {}
-    try:
-        bindings = extract_bindings(
+
+    ctx = evaluation_context
+    if ctx is None:
+        # Resume path / tests that call build_material without a prior resolve.
+        ctx = create_material_evaluation_context(
+            instance_key=resolved.name,
+            material=source_material,
             media_root=media_root,
-            shader_name=resolved.shader_name,
-            params=params,
-            cbmp=cbmp,
             game_key="fh6",
         )
-        sha = (bindings.source_hashes or {}).get("shaderbin_sha256")
-    except Exception as exc:
+    sha = ctx.shader.shaderbin_sha256
+    impl = get_shader_implementation(sha)
+    if impl is None:
         raise RuntimeError(
-            f"{resolved.shader_name} contract: failed to resolve shaderbin identity: {exc}"
-        ) from exc
-    if not is_contract_identity(resolved.shader_name, sha):
+            f"unknown / unsupported shaderbin SHA for IR compile: {sha!r} "
+            f"(shader={resolved.shader_name!r}) — fail closed"
+        )
+    if not impl.is_contract_identity(resolved.shader_name, sha):
         raise RuntimeError(
             f"{resolved.shader_name} shaderbin sha mismatch: got {sha!r}, "
-            f"want {shaderbin_sha256}"
+            f"want {impl.shaderbin_sha256}"
         )
+
     eval_kwargs = {
         "name": resolved.name,
         "material": source_material,
         "resolver": resolver,
         "media_root": media_root,
         "production_mode": True,
+        "evaluation_context": ctx,
     }
-    if resolved.shader_name == "car_standard":
+    if impl.shader_name == "car_standard":
         eval_kwargs["revision"] = os.environ.get(
             "FORZA_CAR_STANDARD_REVISION", "b1.75"
         )
-    ir = evaluate(**eval_kwargs)
+    with METRICS.stage("ir_evaluation"):
+        ir = impl.evaluate(**eval_kwargs)
     if ir.rejection_reasons:
         raise RuntimeError("; ".join(ir.rejection_reasons))
-    mat = compile_forza_material_ir(
-        ir,
-        (resolver, image_cache),
-        material_name=resolved.name,
-    )
+    with METRICS.stage("blender_graph_build"):
+        mat = compile_forza_material_ir(
+            ir,
+            (resolver, image_cache),
+            material_name=resolved.name,
+        )
     mat["forza_pipeline"] = "forza-ir-v1"
-    mat["forza_shaderbin_sha256"] = shaderbin_sha256
+    mat["forza_shaderbin_sha256"] = impl.shaderbin_sha256
     return mat
 
 
@@ -615,6 +598,7 @@ def build_material(
     *,
     source_material=None,
     media_root: str | None = None,
+    evaluation_context=None,
 ):
     """Build Blender material.
 
@@ -622,15 +606,38 @@ def build_material(
     sample-site evaluation. Other / unknown families keep the capability →
     nodes path and fail closed when unsupported.
     """
+    from .shader_implementation import get_shader_implementation
+
     resolved = ensure_resolved_material(material)
-    module_name = _IR_CONTRACT_SHADERS.get(resolved.shader_name)
-    if module_name is not None:
+    sha = None
+    if evaluation_context is not None:
+        sha = getattr(getattr(evaluation_context, "shader", None), "shaderbin_sha256", None)
+    # Name-only IR dispatch removed — exact SHA registry only.
+    if sha and get_shader_implementation(sha) is not None:
+        return _build_via_ir_contract(
+            resolved,
+            resolver,
+            image_cache,
+            source_material=source_material,
+            media_root=media_root or "",
+            evaluation_context=evaluation_context,
+        )
+    # Compatibility: when context missing, try creating it for known IR families
+    # so tests that call build_material directly still work.
+    from .route_model import PRODUCTION_IR_SHADER_NAMES
+
+    if (
+        evaluation_context is None
+        and source_material is not None
+        and media_root
+        and (resolved.shader_name or "").lower() in PRODUCTION_IR_SHADER_NAMES
+    ):
         return _build_via_ir_contract(
             resolved,
             resolver,
             image_cache,
             source_material=source_material,
             media_root=media_root,
-            module_name=module_name,
+            evaluation_context=None,
         )
     return _build_resolved_material(resolved, resolver, image_cache)

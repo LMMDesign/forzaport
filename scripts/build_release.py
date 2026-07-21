@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Build a clean, reproducible Blender addon release zip.
 
-Run from anywhere:
+Run from the GitHub repository root:
   python scripts/build_release.py
 
-Outputs (under workspace ``dist/`` when present, else ``./dist`` next to the addon):
+Outputs under workspace ``dist/`` when present, else ``./dist``:
   io_import_forza_carbin-<version>.zip
   io_import_forza_carbin-<version>.zip.sha256
 """
@@ -16,20 +16,28 @@ import json
 import zipfile
 from pathlib import Path
 
-SOURCE = Path(__file__).resolve().parents[1]
+REPO = Path(__file__).resolve().parents[1]
+SOURCE = REPO / "addon" / "io_import_forza_carbin"
 
 EXCLUDED_FILES = {
-    # Local / research-only; never ship.
     "parsing/mojo_pose_oracle.py",
     "parsing/mojo_bake_debug.py",
     "tools/gr2dump/granny2.dll",
     ".gitignore",
-    # Retired offline research dumps (kept outside the addon tree now; exclude if restored).
     "data/material_table.json",
     "data/material_table_fh6.json",
 }
 EXCLUDED_SUFFIXES = {".pyc", ".pdb", ".lib", ".exp", ".ilk", ".obj"}
-EXCLUDED_PARTS = {"__pycache__", ".git", "scripts", "tests"}
+EXCLUDED_PARTS = {
+    "__pycache__",
+    ".git",
+    "scripts",
+    "tests",
+    ".github",
+    "docs",
+    "reports",
+    "benchmarks",
+}
 
 
 def bl_info_version() -> str:
@@ -47,11 +55,10 @@ def bl_info_version() -> str:
 
 
 def dist_dir() -> Path:
-    # Prefer workspace dist/ (sibling of addon/) when packaging from the local tree.
-    workspace_dist = SOURCE.parents[1] / "dist"
-    if workspace_dist.parent.is_dir() and (SOURCE.parents[1] / "addon").is_dir():
-        return workspace_dist
-    return SOURCE / "dist"
+    workspace = REPO.parents[1]  # …/github/forzaport → …/workspace
+    if (workspace / "github" / "forzaport").resolve() == REPO.resolve():
+        return workspace / "dist"
+    return REPO / "dist"
 
 
 def included_files() -> list[Path]:
@@ -78,19 +85,14 @@ def main() -> int:
 
     required = [
         SOURCE / "__init__.py",
-        SOURCE / "LICENSE",
-        SOURCE / "THIRD_PARTY.md",
+        REPO / "LICENSE",
+        REPO / "THIRD_PARTY.md",
         SOURCE / "tools" / "acl" / "forza_acl.dll",
         SOURCE / "tools" / "gr2dump" / "gr2dump.exe",
     ]
     missing = [str(p) for p in required if not p.is_file()]
     if missing:
         raise SystemExit("Missing release requirements:\n" + "\n".join(missing))
-
-    # Hard refuse proprietary Granny redistributable.
-    if (SOURCE / "tools" / "gr2dump" / "granny2.dll").is_file():
-        # Allowed on disk for local FH5 anim, but must never enter the zip.
-        pass
 
     files = included_files()
     for path in files:
@@ -99,10 +101,19 @@ def main() -> int:
 
     dist.mkdir(parents=True, exist_ok=True)
     hashes: dict[str, str] = {}
-    with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+    with zipfile.ZipFile(
+        out_zip, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
+    ) as zf:
         for path in files:
             rel = path.relative_to(SOURCE)
             arc = (Path("io_import_forza_carbin") / rel).as_posix()
+            data = path.read_bytes()
+            zf.writestr(arc, data)
+            hashes[arc] = hashlib.sha256(data).hexdigest()
+
+        for name in ("LICENSE", "THIRD_PARTY.md"):
+            path = REPO / name
+            arc = f"io_import_forza_carbin/{name}"
             data = path.read_bytes()
             zf.writestr(arc, data)
             hashes[arc] = hashlib.sha256(data).hexdigest()

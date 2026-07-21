@@ -10,10 +10,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 # Package shim (addon __init__ imports bpy).
-_ADDON = Path(__file__).resolve().parents[1]
-_ROOT = _ADDON.parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
+_ADDON = Path(__file__).resolve().parents[1] / "addon" / "io_import_forza_carbin"
+_PKG_PARENT = _ADDON.parent  # …/addon
+if str(_PKG_PARENT) not in sys.path:
+    sys.path.insert(0, str(_PKG_PARENT))
 if "io_import_forza_carbin" not in sys.modules:
     _pkg = types.ModuleType("io_import_forza_carbin")
     _pkg.__path__ = [str(_ADDON)]
@@ -125,7 +125,12 @@ class UVFoundationAlcantaraFixtureTests(unittest.TestCase):
         self.assertEqual((target.obj.shader_name or "").lower(), "car_standard_fabric")
         res = MaterialCapabilityResolver(
             media_root=self.MEDIA, game_key="fh6"
-        ).resolve(name=target.name, material=target.obj, resolver=resolver)
+        ).resolve(
+            name=target.name,
+            material=target.obj,
+            resolver=resolver,
+            derive_slots=True,
+        )
         self.assertTrue(res.is_selected)
         cap = res.resolved.capability
         for slot in (

@@ -122,6 +122,7 @@ def evaluate_material_sample_sites(
     pso_members: dict[str, str] | None = None,
     pso_shas: dict[str, str] | None = None,
     serialized_schema: dict[str, Any] | None = None,
+    pass_contract: dict[str, Any] | None = None,
 ) -> EvaluatedMaterialSampleSites:
     """Evaluate JSON contracts → one EvaluatedSampleSite per contract site.
 
@@ -130,7 +131,31 @@ def evaluate_material_sample_sites(
     scenarios, and vertex-input flags — do not reconstruct those from DXIL alone.
 
     ``pso_members`` / ``pso_shas`` map scenario → archive member / sha when known.
+    ``pass_contract``: optional pre-loaded contract (shared static analysis).
     """
+    from .pipeline_metrics import METRICS
+
+    METRICS.record_call("evaluate_material_sample_sites")
+    with METRICS.stage("evaluate_material_sample_sites"):
+        return _evaluate_material_sample_sites_impl(
+            shaderbin_sha256=shaderbin_sha256,
+            params=params,
+            pso_members=pso_members,
+            pso_shas=pso_shas,
+            serialized_schema=serialized_schema,
+            pass_contract=pass_contract,
+        )
+
+
+def _evaluate_material_sample_sites_impl(
+    *,
+    shaderbin_sha256: str | None,
+    params: dict,
+    pso_members: dict[str, str] | None = None,
+    pso_shas: dict[str, str] | None = None,
+    serialized_schema: dict[str, Any] | None = None,
+    pass_contract: dict[str, Any] | None = None,
+) -> EvaluatedMaterialSampleSites:
     pso_members = pso_members or {}
     pso_shas = pso_shas or {}
 
@@ -152,7 +177,9 @@ def evaluate_material_sample_sites(
     if variant.status == "REJECTED":
         out.rejection_reasons.append(f"variant rejected: {variant.provenance}")
 
-    data = load_shader_pass_contract(shaderbin_sha256)
+    data = pass_contract
+    if data is None:
+        data = load_shader_pass_contract(shaderbin_sha256)
     if data is None:
         return out
 

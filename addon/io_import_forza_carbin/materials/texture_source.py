@@ -137,6 +137,21 @@ def resolve_texture_source(
       2. Exact zip member via ZipAssetStore (shared + cars libraries already indexed)
       3. Failure with structured diagnostics
     """
+    from .pipeline_metrics import METRICS
+
+    METRICS.record_call("resolve_texture_source")
+    with METRICS.stage("resolve_texture_source"):
+        return _resolve_texture_source_impl(
+            path, resolver, media_root=media_root
+        )
+
+
+def _resolve_texture_source_impl(
+    path: str,
+    resolver: Any,
+    *,
+    media_root: str | None = None,
+) -> ResolvedTextureSource:
     original = diagnostic_game_path(path)
     attempts: list[SourceAttempt] = []
     provenance: list[ProvenanceDiagnostic] = []

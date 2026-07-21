@@ -356,6 +356,10 @@ class MaterialResolution:
 
     Prefer ``selected`` / ``rejected`` factories. Direct construction still
     validates invariants in ``__post_init__``.
+
+    ``evaluation_context`` carries the once-built game-file evaluation used by
+    IR evaluators (bindings / sample sites). Capability fields remain derived
+    compatibility views for contracted SHAs.
     """
 
     resolved: ResolvedMaterial | None
@@ -365,6 +369,7 @@ class MaterialResolution:
     bindings: object | None = None
     failure_exception: BaseException | None = None
     texture_binding_decisions: tuple[TextureBindingDecision, ...] = ()
+    evaluation_context: object | None = None
 
     def __post_init__(self) -> None:
         _validate_resolution(resolved=self.resolved, probe=self.probe)
@@ -383,6 +388,7 @@ class MaterialResolution:
         consumed_txmp_hashes: frozenset[int] = frozenset(),
         bindings: object | None = None,
         texture_binding_decisions: tuple[TextureBindingDecision, ...] = (),
+        evaluation_context: object | None = None,
     ) -> MaterialResolution:
         """Successful construction of a typed capability = selection."""
         ev = (
@@ -407,6 +413,7 @@ class MaterialResolution:
             bindings=bindings,
             failure_exception=None,
             texture_binding_decisions=tuple(decisions),
+            evaluation_context=evaluation_context,
         )
 
     @classmethod
@@ -420,6 +427,7 @@ class MaterialResolution:
         bindings: object | None = None,
         failure_exception: BaseException | None = None,
         texture_binding_decisions: tuple[TextureBindingDecision, ...] = (),
+        evaluation_context: object | None = None,
     ) -> MaterialResolution:
         """No complete typed capability — unresolved for diagnostics."""
         reason_tuple = tuple(reasons)
@@ -441,4 +449,5 @@ class MaterialResolution:
             bindings=bindings,
             failure_exception=failure_exception,
             texture_binding_decisions=tuple(texture_binding_decisions),
+            evaluation_context=evaluation_context,
         )

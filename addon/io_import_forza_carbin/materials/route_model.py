@@ -62,8 +62,12 @@ PRODUCTION_IR_SHADER_NAMES: frozenset[str] = frozenset(
 
 
 def has_ir_evaluator(shaderbin_sha256: str | None, shader_name: str | None = None) -> bool:
+    """Production gate: exact shaderbin SHA only (no shader-name-only approval).
+
+    ``shader_name`` is retained for call-site compatibility / diagnostics and
+    is intentionally ignored for the approval decision.
+    """
+    del shader_name  # name-only approval removed from production
     if shaderbin_sha256 and shaderbin_sha256 in PRODUCTION_IR_SHADERBIN_SHA256:
-        return True
-    if shader_name and shader_name.lower() in PRODUCTION_IR_SHADER_NAMES:
         return True
     return False

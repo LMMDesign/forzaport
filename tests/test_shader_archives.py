@@ -9,7 +9,7 @@ import types
 import unittest
 import zipfile
 
-_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "addon", "io_import_forza_carbin"))
 _pkg = types.ModuleType("io_import_forza_carbin")
 _pkg.__path__ = [_ROOT]
 sys.modules.setdefault("io_import_forza_carbin", _pkg)

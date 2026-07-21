@@ -42,7 +42,41 @@ def slots_from_evaluated_sites(
     """Return role→slot maps built from ACTIVE blender_import sample sites.
 
     ``slot_builder`` is resolver._slot; ``prefer_fn`` is resolver._prefer.
+    Derived compatibility view only — not the authoritative IR semantic path.
     """
+    from .pipeline_metrics import METRICS
+
+    METRICS.record_call("slots_from_evaluated_sites")
+    with METRICS.stage("slots_from_evaluated_sites"):
+        return _slots_from_evaluated_sites_impl(
+            bindings=bindings,
+            params=params,
+            txmp=txmp,
+            spmp=spmp,
+            overrides=overrides,
+            shader_name=shader_name,
+            resolver=resolver,
+            slot_builder=slot_builder,
+            prefer_fn=prefer_fn,
+            path_exists=path_exists,
+            capability_kind=capability_kind,
+        )
+
+
+def _slots_from_evaluated_sites_impl(
+    *,
+    bindings: Any,
+    params: dict,
+    txmp: dict[int, int],
+    spmp: dict,
+    overrides: set,
+    shader_name: str,
+    resolver,
+    slot_builder,
+    prefer_fn,
+    path_exists,
+    capability_kind,
+) -> tuple[dict[str, Any], list[str], list[ProvenanceDiagnostic]]:
     errors: list[str] = []
     evidence: list[ProvenanceDiagnostic] = []
     base_map = None

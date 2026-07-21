@@ -60,6 +60,7 @@ class Importer:
         self.built_materials = {}    # material name -> bpy material
         self.material_specs = {}     # material name -> ResolvedMaterial (or None)
         self.material_sources = {}   # material name -> MatI object (IR families)
+        self.material_eval_contexts = {}  # material name -> MaterialEvaluationContext
         self.root_collection = None
         media = find_media_root(options.game_path) or options.game_path
         self.game_key = resolve_import_game_key(
@@ -607,6 +608,11 @@ class Importer:
             )
             self.material_specs[name] = resolved
             self.material_sources[name] = pm.obj
+            self.material_eval_contexts[name] = (
+                result.resolution.evaluation_context
+                if result.resolution is not None
+                else None
+            )
             if self.material_report is not None:
                 self.material_report.upsert(diag)
             if resolved is None:
@@ -641,6 +647,7 @@ class Importer:
                         self.image_cache,
                         source_material=self.material_sources.get(name),
                         media_root=media_root,
+                        evaluation_context=self.material_eval_contexts.get(name),
                     )
                     self.built_materials[name] = mat
                     if self.material_report is not None and name in self.material_report.entries:

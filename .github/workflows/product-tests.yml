@@ -1,0 +1,21 @@
+name: Product tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unittest:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run product tests
+        working-directory: .
+        env:
+          PYTHONPATH: addon
+        run: python -m unittest discover -s tests -p "test_*.py"

@@ -187,6 +187,7 @@ def _uv_expr_for_slot(
     production_mode: bool,
     revision: str,
     uv_cache: dict | None = None,
+    base_uv_override=None,
 ):
     """TEXCOORD → RotateUV(UV_Orientation°) → ScaleUV(U_Tiling, V_Tiling).
 
@@ -194,21 +195,28 @@ def _uv_expr_for_slot(
     ``revision=\"b1\"`` emits MeshUV (+ resolver slot.tiling ScaleUV) without
     MatI rotate/scale — for B1→B1.75 conformance diffs only.
 
-    When Override*=false and bindings share TEXCOORD + U/V tiling + orientation,
-    reuse one UV expression object via ``uv_cache`` (IR structural sharing).
-    Returns (expr, reject_reason).
+    When ``base_uv_override`` is provided (evaluated sample-site UV AST), that
+    expression is the MeshUV/SelectUV root — slot.texcoord/tiling are not used
+    as the authoritative UV source.
     """
     uv_choice = resolve_uv_choice_texcoord(
         params, shaderbin_sha256=CAR_STANDARD_SHADERBIN_SHA256
     )
-    texcoord = int(str(slot.texcoord).replace("TEXCOORD", "") or "0")
-    base = _mesh_uv(
-        texcoord,
-        evidence=_pd(
-            f"slot:{slot.param_name}:TEXCOORD{texcoord}",
-            uv_choice[1].detail if uv_choice else "",
-        ),
-    )
+    if base_uv_override is not None:
+        base = base_uv_override
+        texcoord = getattr(base_uv_override, "index", None)
+        if texcoord is None and hasattr(base_uv_override, "source"):
+            texcoord = getattr(getattr(base_uv_override, "source", None), "index", 0)
+        texcoord = int(texcoord if texcoord is not None else 0)
+    else:
+        texcoord = int(str(slot.texcoord).replace("TEXCOORD", "") or "0")
+        base = _mesh_uv(
+            texcoord,
+            evidence=_pd(
+                f"slot:{slot.param_name}:TEXCOORD{texcoord}",
+                uv_choice[1].detail if uv_choice else "",
+            ),
+        )
     if uv_choice is not None and slot.param_name in (
         "BaseColorAlpha",
         "BaseColorAlpha_1",
@@ -228,7 +236,8 @@ def _uv_expr_for_slot(
             b=false_uv,
             evidence=(uv_choice[1],),
         )
-        base = _mesh_uv(texcoord, evidence=_pd(uv_choice[1].detail))
+        if base_uv_override is None:
+            base = _mesh_uv(texcoord, evidence=_pd(uv_choice[1].detail))
 
     if revision == "b1":
         # Pre-B1.75 IR: MeshUV only; ScaleUV only when resolver slot.tiling ≠ (1,1).
@@ -289,17 +298,65 @@ def _sample_from_slot(
     production_mode: bool,
     revision: str,
     uv_cache: dict | None = None,
+    evaluated_sites=None,
+    evaluation_context=None,
 ) -> tuple[TextureSample | None, str | None]:
-    src = resolve_texture_source(slot.path, resolver) if slot.path else None
+    if evaluation_context is not None:
+        src = evaluation_context.resolve_texture(
+            slot.path,
+            resolver,
+            texture_register=None,
+            txmp_name_hash=int(slot.param_hash) & 0xFFFFFFFF if slot.param_hash else None,
+        )
+    else:
+        src = resolve_texture_source(slot.path, resolver) if slot.path else None
     if src is None or not src.exists:
         return None, f"texture source missing for IR: {slot.param_name}"
-    uv_expr, uv_reject = _uv_expr_for_slot(
-        slot,
-        params,
-        production_mode=production_mode,
-        revision=revision,
-        uv_cache=uv_cache,
-    )
+
+    site = None
+    if evaluated_sites is not None:
+        from .site_ir_sample import find_site_for_slot
+
+        site = find_site_for_slot(evaluated_sites, slot)
+
+    # Prefer typed sample-site UV AST; never invent UV from slot.tiling alone.
+    if site is not None and site.uv_node is not None:
+        from .uv_ir_bridge import uv_expr_to_forza_ir
+
+        base_uv, uv_bridge_err = uv_expr_to_forza_ir(site.uv_node, params=params)
+        if base_uv is None and site.resolved_texcoord is not None:
+            base_uv = _mesh_uv(
+                int(site.resolved_texcoord),
+                evidence=_pd(
+                    f"site:{site.sample_site_id}:TEXCOORD{site.resolved_texcoord}",
+                    uv_bridge_err or "",
+                ),
+            )
+        if base_uv is None:
+            return None, uv_bridge_err or f"{slot.param_name}: site UV unproven"
+        # Family MatI overlay (orient/tiling) wraps the site AST — not slot fields.
+        if revision == "b1":
+            uv_expr = base_uv
+            uv_reject = None
+        else:
+            # Reuse shared-branch overlay logic with a synthetic slot that only
+            # carries param_name for Override* gates — tiling comes from MatI.
+            uv_expr, uv_reject = _uv_expr_for_slot(
+                slot,
+                params,
+                production_mode=production_mode,
+                revision=revision,
+                uv_cache=uv_cache,
+                base_uv_override=base_uv,
+            )
+    else:
+        uv_expr, uv_reject = _uv_expr_for_slot(
+            slot,
+            params,
+            production_mode=production_mode,
+            revision=revision,
+            uv_cache=uv_cache,
+        )
     if uv_reject:
         return None, uv_reject
     assert uv_expr is not None
@@ -315,8 +372,21 @@ def _sample_from_slot(
             address_v=address.get("V", "REPEAT"),
         ),
         evidence=slot.evidence,
+        sample_site_id=site.sample_site_id if site is not None else None,
+        texture_register=int(site.texture_register) if site is not None else None,
+        sampler_register=(
+            int(site.identity.sampler_register)
+            if site is not None and site.identity.sampler_register is not None
+            else None
+        ),
     )
-    return TextureSample(sample=sample), None
+    return (
+        TextureSample(
+            sample=sample,
+            sample_site_id=site.sample_site_id if site is not None else None,
+        ),
+        None,
+    )
 
 
 def evaluate_tint_mode_rgb(
@@ -419,10 +489,13 @@ def evaluate_car_standard(
     media_root: str,
     production_mode: bool = True,
     revision: str = "b1.75",
+    evaluation_context=None,
 ) -> ForzaMaterialIR:
     """Evaluate one car_standard instance into ForzaMaterialIR.
 
     ``revision``: ``\"b1.75\"`` (production) or ``\"b1\"`` (baseline for diffs only).
+    When ``evaluation_context`` is provided, bindings/sample sites/capability are
+    consumed from it — no second ``extract_bindings`` / capability resolve.
     """
     if revision not in ("b1", "b1.75"):
         raise ValueError(f"unsupported car_standard revision: {revision!r}")
@@ -430,14 +503,18 @@ def evaluate_car_standard(
     params = getattr(material, "parameters", None) or {}
     cbmp = getattr(material, "cbmp", None) or {}
 
-    bindings = extract_bindings(
-        media_root=media_root,
-        shader_name="car_standard",
-        params=params,
-        cbmp=cbmp,
-        game_key="fh6",
-    )
-    sha = (bindings.source_hashes or {}).get("shaderbin_sha256")
+    if evaluation_context is not None:
+        bindings = evaluation_context.bindings
+        sha = evaluation_context.shader.shaderbin_sha256
+    else:
+        bindings = extract_bindings(
+            media_root=media_root,
+            shader_name="car_standard",
+            params=params,
+            cbmp=cbmp,
+            game_key="fh6",
+        )
+        sha = (bindings.source_hashes or {}).get("shaderbin_sha256")
     if not is_car_standard_contract_identity(shader_name, sha):
         raise RuntimeError(
             f"car_standard contract identity mismatch: shader={shader_name!r} sha={sha!r}"
@@ -505,21 +582,100 @@ def evaluate_car_standard(
             ),
         )
 
-    cap_resolver = MaterialCapabilityResolver(media_root=media_root, game_key="fh6")
-    resolution = cap_resolver.resolve(name=name, material=material, resolver=resolver)
-    if not resolution.is_selected or resolution.resolved is None:
-        reasons = resolution.probe.rejection_reasons or ("car_standard unsupported",)
-        return ForzaMaterialIR(
-            shader=identity,
-            evidence=tuple(evidence) + tuple(resolution.probe.evidence),
-            rejection_reasons=tuple(reasons),
+    def _cap_from_sites(ctx):
+        from .binding_activation import decide_base_color_source
+        from .evaluation_context import IR_ROUTE_SLOTS_DEFERRED
+        from .model import make_clean_surface_capability
+        from .resolver import _alpha_mode
+        from .site_role_map import collect_site_role_bindings, slot_view_from_binding
+
+        roles = collect_site_role_bindings(ctx)
+        base_slot = slot_view_from_binding(roles["base"]) if "base" in roles else None
+        weave_slot = (
+            slot_view_from_binding(roles["weave_mask"]) if "weave_mask" in roles else None
+        )
+        normal_slot = (
+            slot_view_from_binding(roles["normal"]) if "normal" in roles else None
+        )
+        rmao_slot = slot_view_from_binding(roles["rmao"]) if "rmao" in roles else None
+        alpha_slot = slot_view_from_binding(roles["alpha"]) if "alpha" in roles else None
+        base_source, decisions = decide_base_color_source(
+            shader_name="car_standard",
+            params=params,
+            base_map=base_slot,
+            weave_mask=weave_slot,
+            stock_paint=None,
+            shaderbin_hash=CAR_STANDARD_SHADERBIN_SHA256,
+        )
+        if base_source.kind is BaseColorSourceKind.UNRESOLVED:
+            return None
+        return make_clean_surface_capability(
+            base_color_source=base_source,
+            alpha_map=alpha_slot,
+            normal_map=normal_slot,
+            rmao_map=rmao_slot,
+            alpha_mode=_alpha_mode(params, alpha_slot is not None),
+            alpha_threshold=0.5,
+            evidence=tuple(evidence)
+            + (
+                PD(
+                    kind="route",
+                    detail=IR_ROUTE_SLOTS_DEFERRED,
+                    source="materials.eval_car_standard",
+                ),
+            ),
+            texture_binding_decisions=decisions,
         )
 
-    cap = resolution.resolved.capability
-    evidence.extend(list(cap.evidence))
+    if evaluation_context is not None:
+        cap = _cap_from_sites(evaluation_context)
+        if cap is None:
+            return ForzaMaterialIR(
+                shader=identity,
+                evidence=tuple(evidence),
+                rejection_reasons=(
+                    "car_standard: base color unresolved from evaluated sites",
+                ),
+            )
+        evidence.extend(list(cap.evidence))
+    else:
+        cap_resolver = MaterialCapabilityResolver(media_root=media_root, game_key="fh6")
+        resolution = cap_resolver.resolve(
+            name=name,
+            material=material,
+            resolver=resolver,
+            evaluation_context=None,
+        )
+        if not resolution.is_selected or resolution.resolved is None:
+            reasons = resolution.probe.rejection_reasons or ("car_standard unsupported",)
+            return ForzaMaterialIR(
+                shader=identity,
+                evidence=tuple(evidence) + tuple(resolution.probe.evidence),
+                rejection_reasons=tuple(reasons),
+            )
+        from .evaluation_context import capability_is_ir_deferred
 
-    # Shared Override*=false UV transform: one ScaleUV tree for all bindings
-    # that share TEXCOORD + U/V tiling + orientation (IR structural reuse).
+        if capability_is_ir_deferred(resolution.resolved.capability):
+            ctx = resolution.evaluation_context
+            if ctx is None:
+                return ForzaMaterialIR(
+                    shader=identity,
+                    evidence=tuple(evidence),
+                    rejection_reasons=("car_standard: IR deferred without context",),
+                )
+            cap = _cap_from_sites(ctx)
+            if cap is None:
+                return ForzaMaterialIR(
+                    shader=identity,
+                    evidence=tuple(evidence),
+                    rejection_reasons=(
+                        "car_standard: base color unresolved from evaluated sites",
+                    ),
+                )
+        else:
+            cap = resolution.resolved.capability
+        evidence.extend(list(cap.evidence))
+
     uv_cache: dict = {}
     sample_kw = dict(
         params=params,
@@ -527,6 +683,8 @@ def evaluate_car_standard(
         production_mode=production_mode,
         revision=revision,
         uv_cache=uv_cache,
+        evaluated_sites=getattr(bindings, "evaluated_sites", None),
+        evaluation_context=evaluation_context,
     )
 
     base_color = None

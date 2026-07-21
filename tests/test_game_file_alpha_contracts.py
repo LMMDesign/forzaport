@@ -3,8 +3,18 @@ from __future__ import annotations
 
 import inspect
 import os
+import sys
+import types
 import unittest
 from types import SimpleNamespace
+
+_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "addon", "io_import_forza_carbin"))
+_pkg = types.ModuleType("io_import_forza_carbin")
+_pkg.__path__ = [_ROOT]
+sys.modules.setdefault("io_import_forza_carbin", _pkg)
+_parent = os.path.normpath(os.path.join(_ROOT, ".."))
+if _parent not in sys.path:
+    sys.path.insert(0, _parent)
 
 from io_import_forza_carbin.materials.alpha import (
     AUTHORED_MASK_EQUATION,
@@ -157,7 +167,7 @@ class GameFileAlphaContractTests(unittest.TestCase):
 
         ll = (
             Path(__file__).resolve().parents[3]
-            / "reports/material-conformance/runs"
+            / "reports/archive/2026-07-21-conformance-runs/runs"
             / "2026-07-21_id39-grille-coverage_alpha-pso/dxil"
             / "car_standard_CarShadowDepthLightScenario.ll"
         )
