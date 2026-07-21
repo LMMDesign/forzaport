@@ -1,16 +1,21 @@
-"""Dump declared MatI / shaderbin schema (existence ≠ DXIL sampling)."""
+"""Dump declared MatI / shaderbin schema (existence ≠ DXIL sampling).
+
+Declaration facts come from ``SerializedMaterialShaderSchema`` (FTS-parity
+parsers). DXIL may verify use but must not be required to discover declarations.
+"""
 
 from __future__ import annotations
 
-import hashlib
 import os
 import zipfile
 import xml.etree.ElementTree as ET
 from typing import Any
 
-from ..parsing.binary import BinaryStream, Bundle, Tag
-from ..parsing.material import parse_register_map
 from .name_hashes import name_for_hash
+from .serialized_material_shader_schema import (
+    build_serialized_schema_from_bytes,
+    evaluate_material_instance,
+)
 
 _TYPE_NAMES = {
     0: "float",
@@ -23,10 +28,6 @@ _TYPE_NAMES = {
 }
 
 
-def _sha256(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
 def _param_summary(p) -> dict[str, Any]:
     t = getattr(p, "type", None)
     row: dict[str, Any] = {
@@ -36,9 +37,16 @@ def _param_summary(p) -> dict[str, Any]:
     }
     if t == 6:
         row["path"] = getattr(p, "path", "") or ""
+        ph = getattr(p, "path_hash", None)
+        if ph is not None:
+            row["path_hash"] = f"0x{ph & 0xFFFFFFFF:08X}"
+    elif t == 7:
+        row["address_u"] = getattr(p, "address_u", None)
+        row["address_v"] = getattr(p, "address_v", None)
+        row["filter_or_unk_type"] = getattr(p, "filter_or_unk_type", None)
     elif t == 3:
         row["value"] = bool(getattr(p, "value", False))
-    elif t in (0, 1, 2, 11):
+    elif t in (0, 1, 2, 11, 8):
         row["value"] = getattr(p, "value", None)
     return row
 
@@ -96,7 +104,6 @@ def parse_shaderbin_xml(xml_bytes: bytes) -> dict[str, Any]:
                     "declaration_status": "PROVEN_FROM_GAME_FILES",
                 }
             )
-    # Backward-compat flat map: first variant only, marked provisional if multiple.
     vertex_usage = {}
     if vertex_usage_by_variant:
         vertex_usage = dict(vertex_usage_by_variant[0].get("scenarios") or {})
@@ -123,82 +130,43 @@ def parse_shaderbin_xml(xml_bytes: bytes) -> dict[str, Any]:
 
 
 def dump_shaderbin_bytes(data: bytes, *, shader_name: str = "") -> dict[str, Any]:
-    """Declared schema from a .shaderbin blob."""
-    stream = BinaryStream(memoryview(data))
-    bundle = Bundle()
-    bundle.deserialize(stream)
-    txmp = parse_register_map(bundle.blobs[Tag.TXMP][0]) if bundle.blobs[Tag.TXMP] else {}
-    cbmp = parse_register_map(bundle.blobs[Tag.CBMP][0]) if bundle.blobs[Tag.CBMP] else {}
-    spmp = parse_register_map(bundle.blobs[Tag.SPMP][0]) if bundle.blobs[Tag.SPMP] else {}
-
-    # Load defaults via temporary MaterialSystemObject pattern
-    from ..parsing.material import MaterialSystemObject
-
-    mso = MaterialSystemObject()
-    mso.shader_name = shader_name
-    mso._load_shader_maps(bundle)
-    blobs = bundle.blobs[Tag.DFPR] or bundle.blobs[Tag.MTPR]
-    if blobs:
-        mso.parameters_local.clear()
-        mso._ingest_parameter_blob(
-            blobs[0], into=mso.parameters_local, mark_overrides=False
-        )
-        mso._rebuild_merged()
-
-    declared_txmp = []
-    for h, reg in sorted(txmp.items(), key=lambda kv: int(kv[1])):
-        declared_txmp.append(
-            {
-                "name_hash": f"0x{h & 0xFFFFFFFF:08X}",
-                "name": name_for_hash(h),
-                "texture_register": int(reg),
-                "lifecycle": "DECLARED",
-            }
-        )
-    declared_cbmp = [
+    """Declared schema from a .shaderbin blob (SerializedMaterialShaderSchema)."""
+    schema = build_serialized_schema_from_bytes(data, shader_name=shader_name)
+    d = schema.to_dict()
+    d["declared_txmp"] = [
         {
-            "name_hash": f"0x{h & 0xFFFFFFFF:08X}",
-            "name": name_for_hash(h),
-            "byte_offset": int(off),
-            "cb_row": int(off) // 16,
-            "cb_component": (int(off) % 16) // 4,
+            "name_hash": e.get("name_hash"),
+            "name": name_for_hash(int(e["name_hash"], 16)) if e.get("name_hash") else None,
+            "texture_register": e.get("effective_byte_offset"),
             "lifecycle": "DECLARED",
         }
-        for h, off in sorted(cbmp.items(), key=lambda kv: int(kv[1]))
+        for e in (d.get("txmp") or {}).get("entries") or []
+        if e.get("name_hash")
     ]
-    declared_spmp = [
+    d["declared_cbmp"] = [
         {
-            "name_hash": f"0x{h & 0xFFFFFFFF:08X}",
-            "name": name_for_hash(h),
-            "sampler_register": int(reg),
+            "name_hash": e.get("name_hash"),
+            "name": name_for_hash(int(e["name_hash"], 16)) if e.get("name_hash") else None,
+            "byte_offset": e.get("effective_byte_offset"),
+            "cb_row": (e.get("effective_byte_offset") or 0) // 16,
+            "cb_component": ((e.get("effective_byte_offset") or 0) % 16) // 4,
+            "lifecycle": "DECLARED",
+            "is_legacy_register_offset": e.get("is_legacy_register_offset"),
+        }
+        for e in (d.get("cbmp") or {}).get("entries") or []
+        if e.get("name_hash")
+    ]
+    d["declared_spmp"] = [
+        {
+            "name_hash": e.get("name_hash"),
+            "name": name_for_hash(int(e["name_hash"], 16)) if e.get("name_hash") else None,
+            "sampler_register": e.get("effective_byte_offset"),
             "lifecycle": "DECLARED",
         }
-        for h, reg in sorted(spmp.items(), key=lambda kv: int(kv[1]))
+        for e in (d.get("spmp") or {}).get("entries") or []
+        if e.get("name_hash")
     ]
-    defaults = []
-    for h, p in sorted(mso.parameters_local.items(), key=lambda kv: kv[0] & 0xFFFFFFFF):
-        row = _param_summary(p)
-        row["name_hash"] = f"0x{h & 0xFFFFFFFF:08X}"
-        row["name"] = name_for_hash(h) or row.get("name")
-        row["provenance"] = "SHADER_DEFAULT"
-        row["lifecycle"] = "DECLARED"
-        defaults.append(row)
-
-    return {
-        "shader_name": shader_name,
-        "shaderbin_sha256": _sha256(data),
-        "declared_txmp": declared_txmp,
-        "declared_cbmp": declared_cbmp,
-        "declared_spmp": declared_spmp,
-        "shader_defaults": defaults,
-        "lifecycle_legend": [
-            "DECLARED",
-            "BOUND_BY_INSTANCE",
-            "SAMPLED_IN_PASS",
-            "ACTIVE_IN_BRANCH",
-            "USED_IN_FINAL_EXPRESSION",
-        ],
-    }
+    return d
 
 
 def dump_shader_archive(archive_path: str, shader_name: str) -> dict[str, Any]:
@@ -232,6 +200,7 @@ def dump_material_instance(material) -> dict[str, Any]:
     """
     from .mati_parameter_provenance import dump_instance_parameter_provenance
 
+    evaluated = evaluate_material_instance(material)
     params = getattr(material, "parameters", None) or {}
     local = getattr(material, "parameters_local", None) or {}
     inst = getattr(material, "parameters_instance", None) or {}
@@ -258,7 +227,6 @@ def dump_material_instance(material) -> dict[str, Any]:
         }
         if p is not None:
             row.update(_param_summary(p))
-        # Attach authoritative provenance category.
         for pr in provenance.get("parameters") or []:
             if pr.get("name_hash") == row["name_hash"]:
                 row["provenance_category"] = pr.get("category")
@@ -270,12 +238,16 @@ def dump_material_instance(material) -> dict[str, Any]:
     for h, reg in sorted(txmp.items(), key=lambda kv: int(kv[1])):
         p = params.get(h) or params.get(h & 0xFFFFFFFF)
         path = getattr(p, "path", "") if p is not None else ""
+        ph = getattr(p, "path_hash", None) if p is not None else None
         bindings.append(
             {
                 "name_hash": f"0x{h & 0xFFFFFFFF:08X}",
                 "name": name_for_hash(h),
                 "texture_register": int(reg),
                 "path": path or "",
+                "path_hash": (
+                    f"0x{ph & 0xFFFFFFFF:08X}" if ph is not None else None
+                ),
                 "lifecycle": "BOUND_BY_INSTANCE" if path else "DECLARED",
             }
         )
@@ -285,4 +257,6 @@ def dump_material_instance(material) -> dict[str, Any]:
         "parameters": rows,
         "texture_bindings": bindings,
         "parameter_provenance": provenance,
+        "evaluated_material_instance": evaluated.to_dict(),
+        "serialized_material_shader_schema": evaluated.schema.to_dict(),
     }

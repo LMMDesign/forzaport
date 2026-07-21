@@ -122,6 +122,18 @@ class Tag:
 
     TXCB = 0x54584342  # 'TXCB'
 
+    # Shader / material schema blobs (FTS ForzaTools.Bundles parity).
+    LSCE = 0x4C534345  # 'LSCE' light scenarios
+    TRGT = 0x54524754  # 'TRGT' render-target VS/PS pairs
+    VERS = 0x56455253  # 'VERS'
+    VARS = 0x56415253  # 'VARS'
+    DBLS = 0x44424C53  # 'DBLS' debug light scenarios
+
+    # Metadata tags (on blobs, not top-level Tag registry historically)
+    ARTX = 0x58545241  # 'ARTX' (byte-reversed fourCC as in FTS)
+    BLEN = 0x424C454E  # 'BLEN'
+    VDCL = 0x5644434C  # 'VDCL'
+
 
 class Version:
     def __init__(self):

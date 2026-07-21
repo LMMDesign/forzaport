@@ -73,6 +73,8 @@ class EvaluatedMaterialSampleSites:
     sites: list[EvaluatedSampleSite] = field(default_factory=list)
     rejection_reasons: list[str] = field(default_factory=list)
     compatibility_bridge_used: bool = False
+    # FTS-parity declaration layer (optional; preferred over reconstructing schema from DXIL).
+    serialized_schema: dict[str, Any] | None = None
 
     def by_identity(self) -> dict[str, EvaluatedSampleSite]:
         return {s.identity.as_key(): s for s in self.sites}
@@ -119,8 +121,13 @@ def evaluate_material_sample_sites(
     params: dict,
     pso_members: dict[str, str] | None = None,
     pso_shas: dict[str, str] | None = None,
+    serialized_schema: dict[str, Any] | None = None,
 ) -> EvaluatedMaterialSampleSites:
     """Evaluate JSON contracts → one EvaluatedSampleSite per contract site.
+
+    ``serialized_schema`` is the FTS-parity ``SerializedMaterialShaderSchema``
+    (declaration layer). Prefer it for parameter types, CBMP offsets, defaults,
+    scenarios, and vertex-input flags — do not reconstruct those from DXIL alone.
 
     ``pso_members`` / ``pso_shas`` map scenario → archive member / sha when known.
     """
@@ -140,6 +147,7 @@ def evaluate_material_sample_sites(
     out = EvaluatedMaterialSampleSites(
         shaderbin_sha256=shaderbin_sha256,
         variant=variant,
+        serialized_schema=serialized_schema,
     )
     if variant.status == "REJECTED":
         out.rejection_reasons.append(f"variant rejected: {variant.provenance}")

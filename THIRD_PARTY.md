@@ -30,11 +30,27 @@ For FH5 animation import, place a legally obtained `granny2.dll` next to
 lawful Granny-based tool install). Static car import and FH6 Mojo ACL animation
 work without it.
 
+## ForzaTools.Bundles parser adaptations (MIT)
+
+Material/shader blob parsers under `parsing/fts_mapping.py` and
+`parsing/fts_schema_blobs.py`, plus related logic in `parsing/material.py` and
+`materials/serialized_material_shader_schema.py`, are adapted from
+**ForzaTools.Bundles** in ForzaTech Studio:
+
+- Copyright (c) 2023 Nenkai
+- License: MIT (see `ForzaTechStudio/LICENSE` in the workspace checkout)
+
+Preserved rules include TXMP/CBMP/SPMP versioned layouts (including CBMP ≤1.0
+register×16), MTPR/DFPR parameter typing, LSCE, TRGT, VERS/VARS, and BLEN/VDCL/ARTX
+metadata. **Viewport material heuristics** from ForzaTechStudio UI are
+intentionally excluded from production ForzaPort semantics.
+
 ## Material name hashes
 
 `data/name_hashes.json` is exported from ForzaTech Studio’s `NameHashService`
 (hash → parameter name). Used at import to label MTPR/DFPR parameters. It is
-derived lookup data, not a game asset.
+derived lookup data, not a game asset. A decoded name is metadata only — not
+proof of alpha/UV/texture-role/visibility/Blender routing.
 
 Retired offline material-table dumps (`material_table.json` /
 `material_table_fh6.json`) are local research only and are not shipped or

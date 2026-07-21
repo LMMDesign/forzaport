@@ -12,6 +12,11 @@ import re
 import struct
 
 from .binary import BinaryStream, Bundle, Version, Tag
+from .fts_mapping import (
+    ShaderParameterMapping,
+    parse_register_map,
+    parse_shader_parameter_mapping,
+)
 
 
 class MaterialParseError(RuntimeError):
@@ -141,26 +146,7 @@ def image_name(path):
     return _GUID_SUFFIX.sub("", name) or name
 
 
-def parse_register_map(blob) -> dict[int, int]:
-    """TXMP/SPMP/CBMP: hash -> register or byte offset (u16). Entry = hash+u16+guid(16)."""
-    if blob is None:
-        return {}
-    stream = blob.stream
-    stream.seek(0)
-    d = bytes(stream.read())
-    if not d or len(d) < 2:
-        return {}
-    n = struct.unpack_from("<H", d, 0)[0]
-    off = 2
-    out: dict[int, int] = {}
-    for _ in range(n):
-        if off + 6 > len(d):
-            break
-        h = struct.unpack_from("<I", d, off)[0]
-        v = struct.unpack_from("<H", d, off + 4)[0]
-        out[h] = v
-        off += 22
-    return out
+# parse_register_map re-exported from fts_mapping (FTS version-aware).
 
 
 class ShaderParameter:
@@ -169,10 +155,17 @@ class ShaderParameter:
         self.guid = None
         self.type = 0
         self.name = None  # filled by NameHash when available
+        self.param_version = None
+        self.path_hash = None  # Texture2D PathHash (param v2+)
+        self.address_u = None
+        self.address_v = None
+        self.filter_or_unk_type = None  # FTS SamplerParameter.UnkType (v1.1+)
+        self.gradient_stops = None  # ColorGradient stop count (type 8)
 
     def deserialize(self, stream):
         version = Version()
         version.deserialize(stream)
+        self.param_version = version
         if version.major is None or version.minor is None or version.major > 10:
             raise ValueError(f"shader parameter stream desync (version={version})")
         if not version.is_at_most(3, 4):
@@ -193,6 +186,7 @@ class ShaderParameter:
         match self.type:
             case 0 | 1 | 5 | 9 | 12:
                 # 0/1 vector/color; 5/9 swizzle/functionRange; 12 = FH6 vec4-sized slot
+                # (type 12 is ForzaPort-only relative to FTS enum; layout matches Vector4)
                 self.value = (
                     stream.read_f32(),
                     stream.read_f32(),
@@ -206,21 +200,43 @@ class ShaderParameter:
             case 3:
                 self.value = stream.read_u32() != 0
             case 6:
+                # Texture2D — keep PathHash (FTS TextureParameter.PathHash)
                 self.path = stream.read_7bit_string()
                 if version.is_at_least(2, 0):
-                    stream.seek(4, 1)
+                    self.path_hash = stream.read_u32()
             case 7:
-                # Sampler: AddressU/V (8). v1.1+ adds UnkType (4). FH6 v3+ adds 4 more.
-                self.samp = bytes(stream.read(8))
+                # Sampler: AddressU/V (i32 each). v1.1+ UnkType/filter (i32).
+                # FH6 v3+ may carry 4 extra bytes after UnkType (ForzaPort extension).
+                self.address_u = stream.read_s32()
+                self.address_v = stream.read_s32()
+                self.samp = struct.pack(
+                    "<ii", self.address_u or 0, self.address_v or 0
+                )
                 if version.is_at_least(3, 0):
-                    self.samp4 = bytes(stream.read(8))
+                    self.filter_or_unk_type = stream.read_s32()
+                    extra = bytes(stream.read(4))
+                    self.samp4 = struct.pack("<i", self.filter_or_unk_type or 0) + extra
                 elif version.is_at_least(1, 1):
-                    self.samp4 = bytes(stream.read(4))
+                    self.filter_or_unk_type = stream.read_s32()
+                    self.samp4 = struct.pack("<i", self.filter_or_unk_type or 0)
                 else:
+                    self.filter_or_unk_type = 1  # FTS default Linear
                     self.samp4 = b""
             case 8:
-                length = stream.read_u32()
-                stream.seek(16 * (length or 0), 1)
+                length = stream.read_u32() or 0
+                self.gradient_stops = length
+                # Preserve stop data for schema dumps (FTS ColorGradientParameter).
+                stops = []
+                for _ in range(length):
+                    stops.append(
+                        (
+                            stream.read_f32(),
+                            stream.read_f32(),
+                            stream.read_f32(),
+                            stream.read_f32(),
+                        )
+                    )
+                self.value = stops
             case 11:
                 self.value = (stream.read_f32(), stream.read_f32())
                 if not version.is_at_least(2, 0):
@@ -241,12 +257,18 @@ class MaterialSystemObject:
         self.shader_name = None
         self.shader_game_path = None
         self.shaderbin_path = None  # resolved filesystem path
-        self.txmp = {}  # hash -> texture register
-        self.cbmp = {}  # hash -> cbuffer byte offset
-        self.spmp = {}  # hash -> sampler register
+        self.txmp = {}  # hash -> texture register (effective)
+        self.cbmp = {}  # hash -> cbuffer byte offset (effective; legacy ×16 applied)
+        self.spmp = {}  # hash -> sampler register (effective)
+        self.txmp_mapping: ShaderParameterMapping | None = None
+        self.cbmp_mapping: ShaderParameterMapping | None = None
+        self.spmp_mapping: ShaderParameterMapping | None = None
+        self.mtpr_trailer = None  # (unk1, unk2, unk3) CRC/footer for MTPR ≥2.0
         self.default_texture_paths = set()
         self.override_hashes = set()
         self.parent_material_path = None
+        self.parent_path_v1_1 = None
+        self.parent_path_v1_2 = None
 
     def _ingest_parameter_blob(self, parameters_blob, *, into: dict, mark_overrides=False):
         ver = parameters_blob.version
@@ -257,12 +279,14 @@ class MaterialSystemObject:
         if not ver.is_at_least(2, 0):
             raise MaterialParseError(f"unsupported DFPR/MTPR version {ver} (min 2.0)")
         stream = parameters_blob.stream
+        stream.seek(0)
         if ver.is_at_least(2, 1):
             parameters_length = stream.read_u16()
         else:
             parameters_length = stream.read_u8()
         for _ in range(parameters_length or 0):
-            # FH6 DFPR inserts zero padding between some parameters.
+            # FH6 DFPR inserts zero padding between some parameters
+            # (ForzaPort extension; FTS does not skip padding).
             while True:
                 pos = stream.tell()
                 b0 = stream.read_u8()
@@ -278,6 +302,25 @@ class MaterialSystemObject:
             into[parameter.hash] = parameter
             if mark_overrides:
                 self.override_hashes.add(parameter.hash)
+        # FTS: MTPR (not DFPR) ≥2.0 may append three uint32 footers.
+        tag = int(getattr(parameters_blob, "tag", 0) or 0)
+        if ver.is_at_least(2, 0) and tag == Tag.MTPR:
+            remaining = (
+                getattr(parameters_blob, "data_size", None)
+                or (stream._stream.getbuffer().nbytes if hasattr(stream, "_stream") else 0)
+            )
+            # Prefer absolute remaining in this blob stream.
+            try:
+                blob_len = stream._stream.getbuffer().nbytes
+                left = blob_len - stream.tell()
+            except Exception:
+                left = 0
+            if left >= 12:
+                self.mtpr_trailer = (
+                    stream.read_u32(),
+                    stream.read_u32(),
+                    stream.read_u32(),
+                )
 
     def _label_names(self, params: dict):
         try:
@@ -302,11 +345,14 @@ class MaterialSystemObject:
         cb = bundle.blobs[Tag.CBMP]
         sp = bundle.blobs[Tag.SPMP]
         if tx:
-            self.txmp = parse_register_map(tx[0])
+            self.txmp_mapping = parse_shader_parameter_mapping(tx[0])
+            self.txmp = self.txmp_mapping.as_hash_map()
         if cb:
-            self.cbmp = parse_register_map(cb[0])
+            self.cbmp_mapping = parse_shader_parameter_mapping(cb[0])
+            self.cbmp = self.cbmp_mapping.as_hash_map()
         if sp:
-            self.spmp = parse_register_map(sp[0])
+            self.spmp_mapping = parse_shader_parameter_mapping(sp[0])
+            self.spmp = self.spmp_mapping.as_hash_map()
 
     def _load_shaderbin(self, path, resolver):
         """Load DFPR defaults + TXMP/CBMP/SPMP from a .shaderbin. Fail if missing."""
@@ -340,8 +386,16 @@ class MaterialSystemObject:
             raise MaterialParseError("material has no MATI/MATL parent path")
 
         parent_blob = parent_blobs[0]
+        parent_blob.stream.seek(0)
         parent_path = parent_blob.stream.read_7bit_string()
         self.parent_material_path = parent_path
+        # MATL multi-path (FTS MatLBlob): PathV1_1 / PathV1_2
+        pver = parent_blob.version or Version()
+        if int(getattr(parent_blob, "tag", 0) or 0) == Tag.MATL:
+            if pver.is_at_least(1, 1):
+                self.parent_path_v1_1 = parent_blob.stream.read_7bit_string()
+            if pver.is_at_least(1, 2):
+                self.parent_path_v1_2 = parent_blob.stream.read_7bit_string()
         low = parent_path.lower().replace("/", "\\")
         if low.endswith(".shaderbin"):
             self._load_shaderbin(parent_path, resolver)
@@ -361,6 +415,10 @@ class MaterialSystemObject:
             self.txmp = dict(parent.txmp)
             self.cbmp = dict(parent.cbmp)
             self.spmp = dict(parent.spmp)
+            self.txmp_mapping = parent.txmp_mapping
+            self.cbmp_mapping = parent.cbmp_mapping
+            self.spmp_mapping = parent.spmp_mapping
+            self.mtpr_trailer = parent.mtpr_trailer
             self.parameters_local = dict(parent.parameters)
             if self.shader_name is None:
                 name_meta = parent_blob.metadata.get(Tag.Name)
