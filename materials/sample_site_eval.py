@@ -43,9 +43,10 @@ class EvaluatedSampleSite:
     relevance_evidence_status: str  # PROVISIONAL_NAME_CLASSIFICATION | CONTRACT_EVIDENCE | …
     blender_import: bool
     status: str  # ACTIVE | INACTIVE | REJECTED | UNRESOLVED
-    branch_status: str = "UNCONDITIONAL"
-    # UNCONDITIONAL | EXECUTABLE_PREDICATE | COMPILE_TIME_VARIANT | PASS_ONLY |
-    # INACTIVE_OR_OPTIMISED | UNRESOLVED_PREDICATE | NOT_RELEVANT_TO_BLENDER
+    branch_status: str = "NO_PREDICATE_RECOVERED"
+    # PROVEN_UNCONDITIONAL | EXECUTABLE_PREDICATE | COMPILE_TIME_VARIANT |
+    # PASS_SCOPED | NOT_RELEVANT_TO_BLENDER | NO_PREDICATE_RECOVERED |
+    # UNRESOLVED_PREDICATE | INACTIVE_OR_OPTIMISED
     branch_predicates: tuple[BranchPredicate, ...] = ()
     evidence: tuple[str, ...] = ()
     declared_txmp: str | None = None
@@ -245,15 +246,32 @@ def evaluate_material_sample_sites(
                 evidence: list[str] = list(s.get("evidence") or [])
                 uv_eval: UvEvalResult | None = None
                 rejection = None
-                branch_status = "UNCONDITIONAL"
-
-                # Branch predicates
-                if branches:
+                # Do not rename empty evidence as UNCONDITIONAL.
+                contract_branch = str(
+                    s.get("branch_status") or s.get("uv_branch_status") or ""
+                ).strip()
+                if contract_branch in (
+                    "PROVEN_UNCONDITIONAL",
+                    "EXECUTABLE_PREDICATE",
+                    "COMPILE_TIME_VARIANT",
+                    "PASS_SCOPED",
+                    "NOT_RELEVANT_TO_BLENDER",
+                    "NO_PREDICATE_RECOVERED",
+                    "UNRESOLVED_PREDICATE",
+                    "INACTIVE_OR_OPTIMISED",
+                ):
+                    branch_status = contract_branch
+                elif branches:
                     branch_status = "EXECUTABLE_PREDICATE"
                 elif pass_row.get("requires_variant"):
                     branch_status = "COMPILE_TIME_VARIANT"
                 elif not blender_import:
                     branch_status = "NOT_RELEVANT_TO_BLENDER"
+                else:
+                    branch_status = "NO_PREDICATE_RECOVERED"
+
+                if branches and branch_status == "NO_PREDICATE_RECOVERED":
+                    branch_status = "EXECUTABLE_PREDICATE"
 
                 for bp in branches:
                     ok, ev = _eval_branch(bp, params)
@@ -272,6 +290,20 @@ def evaluate_material_sample_sites(
                         branch_status = "INACTIVE_OR_OPTIMISED"
                         evidence.append("branch_false→inactive")
                         break
+
+                # Blender-relevant sites with unrecovered predicates fail closed.
+                if (
+                    blender_import
+                    and status == "ACTIVE"
+                    and branch_status
+                    in ("NO_PREDICATE_RECOVERED", "UNRESOLVED_PREDICATE")
+                ):
+                    status = "REJECTED"
+                    rejection = (
+                        f"blender-relevant sample site branch_status="
+                        f"{branch_status} — fail closed until proven"
+                    )
+                    evidence.append(rejection)
 
                 # Always evaluate UV when a node is present (evidence), even for
                 # non-import / inactive sites.

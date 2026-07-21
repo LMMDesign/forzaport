@@ -101,11 +101,12 @@ Materials are built **directly from game data** (fail closed):
    typed UV expressions) into `EvaluatedMaterialSampleSites`, then
    `ForzaMaterialIR`, then a minimal Blender graph.
 
-For exact contracted shaderbin SHAs, evaluated sample sites are authoritative.
-Production does **not** discover semantics via register-keyed `TextureBinding`
-merges (`PassMergeSpec` / `_merge_pass_sites`). A
-`LEGACY_COMPATIBILITY_VIEW` may exist only for explicitly non-contracted or
-diagnostic paths and fails closed if reached for a contracted SHA.
+For exact contracted shaderbin SHAs, evaluated sample sites are authoritative
+and lower into `ForzaMaterialIR` (`FULL_SAMPLE_SITE_IR`). Production does **not**
+discover semantics via register-keyed `TextureBinding` merges
+(`PassMergeSpec` / `_merge_pass_sites`). A `LEGACY_COMPATIBILITY_VIEW` may exist
+only for explicitly non-contracted or diagnostic paths and fails closed if
+reached for a contracted SHA.
 
 Static DXIL analysis is cached by game + shaderbin SHA + full PSO member path +
 PSO SHA + parser version + variant + pass + stage. Instance evaluation is never
@@ -113,7 +114,8 @@ memoized by shader name alone.
 
 UVChoice (`UVChoice_OnCh1_OffCh2` → TEXCOORD0/1) applies only to exact SHAs with
 independent DXIL proof (`8df4836b…` car_standard, `8d4ef07a…`
-car_standard_emissive, `af463726…` car_standard_fabric). Unknown SHAs fail closed.
+car_standard_emissive, `af463726…` car_standard_fabric, `35bccc9b…` car_label,
+`37305079…` car_standard_coated). Unknown SHAs fail closed.
 
 Requires `dxc` (see `THIRD_PARTY.md` / `FORZA_DXC`).
 

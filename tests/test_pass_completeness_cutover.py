@@ -78,7 +78,7 @@ class ContractedBridgeCutoverTests(unittest.TestCase):
         b = ShaderBindings(
             shader_name="car_livery",
             source_hashes={"shaderbin_sha256": CAR_LIVERY_SHADERBIN_SHA256},
-            authoritative_model="EVALUATED_SAMPLE_SITES",
+            authoritative_model="FULL_SAMPLE_SITE_IR",
         )
         with self.assertRaises(LegacyCompatibilityBridgeError):
             b.legacy_textures_view(material_instance_key="fh6|x")

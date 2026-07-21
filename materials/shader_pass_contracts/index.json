@@ -1,12 +1,54 @@
 {
   "schema_version": 1,
-  "description": "Exact-SHA shader pass contracts. Semantics live in JSON; Python validates and evaluates.",
+  "description": "Exact-SHA shader pass contracts.",
   "contracts": [
     {
-      "shader_name": "car_livery",
-      "shaderbin_sha256": "f1617a600d251bc8acb78abf939ce6b1b223ea23afee8f4fb592094c135051bb",
+      "shader_name": "car_standard",
+      "shaderbin_sha256": "8df4836b0bf017fccbaf4f5bd5ce7a217f260924e457c72751a2d5df8163df16",
       "status": "APPROVED_PARTIAL",
-      "file": "f1617a600d251bc8acb78abf939ce6b1b223ea23afee8f4fb592094c135051bb.json"
+      "file": "8df4836b0bf017fccbaf4f5bd5ce7a217f260924e457c72751a2d5df8163df16.json"
+    },
+    {
+      "shader_name": "car_label",
+      "shaderbin_sha256": "35bccc9b43710c374b94c8800436dce8a44c607ee778f65764f31f0bc56cc515",
+      "status": "APPROVED_PARTIAL",
+      "file": "35bccc9b43710c374b94c8800436dce8a44c607ee778f65764f31f0bc56cc515.json"
+    },
+    {
+      "shader_name": "car_carbonfiber",
+      "shaderbin_sha256": "f18954b13a8d117a6e442f153c2138cec6f31154d80430d0b86c458725a597b3",
+      "status": "APPROVED_PARTIAL",
+      "file": "f18954b13a8d117a6e442f153c2138cec6f31154d80430d0b86c458725a597b3.json"
+    },
+    {
+      "shader_name": "car_standard_emissive",
+      "shaderbin_sha256": "8d4ef07a59378e6862a1e9318b8b247100e7fc5e05954a8fdbe6ae6ea2a57178",
+      "status": "APPROVED_PARTIAL",
+      "file": "8d4ef07a59378e6862a1e9318b8b247100e7fc5e05954a8fdbe6ae6ea2a57178.json"
+    },
+    {
+      "shader_name": "car_standard_fabric",
+      "shaderbin_sha256": "af463726a228752c328abd847868a90bf69110463594a69851ebee1ce9034523",
+      "status": "APPROVED_PARTIAL",
+      "file": "af463726a228752c328abd847868a90bf69110463594a69851ebee1ce9034523.json"
+    },
+    {
+      "shader_name": "car_automotive_paint",
+      "shaderbin_sha256": "ce460364d8151e819f056552d274353ba2657aff2ff718ed1239db02b7ffebb3",
+      "status": "APPROVED_PARTIAL",
+      "file": "ce460364d8151e819f056552d274353ba2657aff2ff718ed1239db02b7ffebb3.json"
+    },
+    {
+      "shader_name": "car_standard_coated",
+      "shaderbin_sha256": "373050795197539169f78b29a08424add9f313e99c8eab0a33a6658a40987c88",
+      "status": "APPROVED_PARTIAL",
+      "file": "373050795197539169f78b29a08424add9f313e99c8eab0a33a6658a40987c88.json"
+    },
+    {
+      "shader_name": "car_glass_detailed",
+      "shaderbin_sha256": "3f988df89a12b4a008777463a56eee840a5c3488c6af3ad53f69c2f4cb861d09",
+      "status": "APPROVED_PARTIAL",
+      "file": "3f988df89a12b4a008777463a56eee840a5c3488c6af3ad53f69c2f4cb861d09.json"
     },
     {
       "shader_name": "car_reflector",
@@ -15,10 +57,22 @@
       "file": "47f92e42f2d1991ae07a36364216402e53801bc6be9efa765ee49fe64a51d0e9.json"
     },
     {
-      "shader_name": "car_standard_emissive",
-      "shaderbin_sha256": "8d4ef07a59378e6862a1e9318b8b247100e7fc5e05954a8fdbe6ae6ea2a57178",
+      "shader_name": "car_brakerotor",
+      "shaderbin_sha256": "384692abfe3daace9b29f2580c60c23a171192e8c5e9fd6b3be10989b255f106",
       "status": "APPROVED_PARTIAL",
-      "file": "8d4ef07a59378e6862a1e9318b8b247100e7fc5e05954a8fdbe6ae6ea2a57178.json"
+      "file": "384692abfe3daace9b29f2580c60c23a171192e8c5e9fd6b3be10989b255f106.json"
+    },
+    {
+      "shader_name": "car_livery_transmissive",
+      "shaderbin_sha256": "831b4866240da29fa4bf6706b13ceab4f4259e2cb4f32eb7b10da687f7284f53",
+      "status": "APPROVED_PARTIAL",
+      "file": "831b4866240da29fa4bf6706b13ceab4f4259e2cb4f32eb7b10da687f7284f53.json"
+    },
+    {
+      "shader_name": "car_livery",
+      "shaderbin_sha256": "f1617a600d251bc8acb78abf939ce6b1b223ea23afee8f4fb592094c135051bb",
+      "status": "APPROVED_PARTIAL",
+      "file": "f1617a600d251bc8acb78abf939ce6b1b223ea23afee8f4fb592094c135051bb.json"
     },
     {
       "shader_name": "car_tinthack",

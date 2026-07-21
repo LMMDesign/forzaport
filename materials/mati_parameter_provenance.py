@@ -126,7 +126,47 @@ def classify_parameter_provenance(
     }
 
 
-def dump_instance_parameter_provenance(material: Any) -> dict[str, Any]:
+def material_content_key(
+    *,
+    shaderbin_sha256: str | None,
+    source_mati_path: str | None,
+    parameter_fingerprint: str | None = None,
+) -> str:
+    """Content identity — may repeat across corpus occurrences."""
+    return "|".join(
+        [
+            (shaderbin_sha256 or "")[:64],
+            (source_mati_path or "").replace("\\", "/").lower(),
+            parameter_fingerprint or "",
+        ]
+    )
+
+
+def corpus_occurrence_key(
+    *,
+    game: str = "fh6",
+    vehicle_or_archive: str | None = None,
+    source_catalog: str | None = None,
+    source_mati_path: str | None = None,
+    mesh_or_object: str | None = None,
+    material_slot: str | None = None,
+    occurrence_index: int = 0,
+) -> str:
+    """Unique corpus occurrence identity — must be unique across 2317 rows."""
+    return "|".join(
+        [
+            game or "fh6",
+            (vehicle_or_archive or "").replace("\\", "/").lower(),
+            (source_catalog or "").replace("\\", "/").lower(),
+            (source_mati_path or "").replace("\\", "/").lower(),
+            (mesh_or_object or "").replace("\\", "/").lower(),
+            (material_slot or "").replace("\\", "/").lower(),
+            str(int(occurrence_index)),
+        ]
+    )
+
+
+def dump_instance_parameter_provenance(material: Any, **occurrence_ctx: Any) -> dict[str, Any]:
     """Emit provenance rows for every parameter on one MatI instance."""
     inst = getattr(material, "parameters_instance", None) or {}
     local = getattr(material, "parameters_local", None) or {}
@@ -138,12 +178,31 @@ def dump_instance_parameter_provenance(material: Any) -> dict[str, Any]:
     by_cat: dict[str, int] = {}
     for r in rows:
         by_cat[r["category"]] = by_cat.get(r["category"], 0) + 1
+    source_mati = getattr(material, "source_mati_path", None) or getattr(
+        material, "path", None
+    )
+    sha = getattr(material, "shaderbin_sha256", None)
+    content = material_content_key(
+        shaderbin_sha256=sha,
+        source_mati_path=source_mati,
+    )
+    occurrence = corpus_occurrence_key(
+        game=str(occurrence_ctx.get("game") or "fh6"),
+        vehicle_or_archive=occurrence_ctx.get("vehicle_or_archive"),
+        source_catalog=occurrence_ctx.get("source_catalog"),
+        source_mati_path=source_mati,
+        mesh_or_object=occurrence_ctx.get("mesh_or_object"),
+        material_slot=occurrence_ctx.get("material_slot")
+        or getattr(material, "name", None),
+        occurrence_index=int(occurrence_ctx.get("occurrence_index") or 0),
+    )
     return {
         "shader_name": getattr(material, "shader_name", None),
-        "source_mati_path": getattr(material, "source_mati_path", None)
-        or getattr(material, "path", None),
+        "source_mati_path": source_mati,
         "parent_material_path": getattr(material, "parent_material_path", None),
-        "shaderbin_sha256": getattr(material, "shaderbin_sha256", None),
+        "shaderbin_sha256": sha,
+        "material_content_key": content,
+        "corpus_occurrence_key": occurrence,
         "parameter_count": len(rows),
         "by_category": by_cat,
         "parameters": rows,

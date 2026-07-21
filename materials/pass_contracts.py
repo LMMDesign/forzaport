@@ -134,6 +134,8 @@ def _uv_semantics_from_expression(expr) -> tuple[int, ...] | None:
 
 def blender_import_merge_specs(
     shaderbin_sha256: str | None,
+    *,
+    include_primary_carlight: bool = True,
 ) -> tuple[PassMergeSpec, ...]:
     """Deprecated compatibility adapter: **one PassMergeSpec per site**.
 
@@ -145,6 +147,9 @@ def blender_import_merge_specs(
         return ()
     out: list[PassMergeSpec] = []
     for pass_row in data.get("relevant_passes") or []:
+        scenario = str(pass_row.get("scenario") or "")
+        if not include_primary_carlight and scenario == PRIMARY_RASTER_PASS:
+            continue
         member = pass_row.get("archive_member") or ""
         basename = os.path.basename(member.replace("\\", "/"))
         for s in pass_row.get("import_sample_sites") or []:
@@ -159,7 +164,7 @@ def blender_import_merge_specs(
                 uv_expr = s.get("expected_uv_expression")
             out.append(
                 PassMergeSpec(
-                    pass_name=str(pass_row.get("scenario") or ""),
+                    pass_name=scenario,
                     pso_basename=basename,
                     merge_texture_registers=(treg,),
                     expected_uv_semantics=_uv_semantics_from_expression(uv_expr),
@@ -187,8 +192,10 @@ def blender_import_merge_specs(
 
 
 def additional_passes_for_sha(shaderbin_sha256: str | None) -> tuple[PassMergeSpec, ...]:
-    """Back-compat name used by extract_bindings — blender_import sites only."""
-    return blender_import_merge_specs(shaderbin_sha256)
+    """Legacy adapter: non-primary blender_import sites only (no CarLightScenario)."""
+    return blender_import_merge_specs(
+        shaderbin_sha256, include_primary_carlight=False
+    )
 
 
 def sample_sites_for_sha(shaderbin_sha256: str | None) -> tuple[SampleSiteContract, ...]:

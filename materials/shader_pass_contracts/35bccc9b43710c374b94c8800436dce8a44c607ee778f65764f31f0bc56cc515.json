@@ -1,26 +1,106 @@
 {
   "schema_version": 1,
-  "shader_name": "car_standard_emissive",
-  "shaderbin_sha256": "8d4ef07a59378e6862a1e9318b8b247100e7fc5e05954a8fdbe6ae6ea2a57178",
+  "shader_name": "car_label",
+  "shaderbin_sha256": "35bccc9b43710c374b94c8800436dce8a44c607ee778f65764f31f0bc56cc515",
   "status": "APPROVED_PARTIAL",
-  "schema_notes": "Declared TXMP Alpha@t16. CarLightScenario omits Alpha; SimpleCarLight samples it.",
+  "schema_notes": "Primary CarLight sample-site contracts generated from DXIL inventory.",
   "relevant_passes": [
     {
       "scenario": "CarLightScenario",
       "variant": "",
-      "archive_member": "car_standard_emissiveCarLightScenario.pcdxil.pso",
+      "archive_member": "car_labelCarLightScenario.pcdxil.pso",
       "stage": "ps",
-      "pso_sha256": "3b9564433f2b0992c6266241282797a7f1f9990e93fef71f5f46482c651acb4d",
+      "pso_sha256": "63cbd682065fb207c108961d7b0c83adff000e843f46888106885582bdde864b",
       "blender_relevance": "MAIN_SURFACE_SHADING",
       "reason": "Primary CarLightScenario sample sites from DXIL inventory.",
       "relevance_evidence": [
         "DXIL CarLightScenario PSO sample instructions",
-        "family=car_standard_emissive sha=8d4ef07a59378e68\u2026"
+        "family=car_label sha=35bccc9b43710c37\u2026"
       ],
       "import_sample_sites": [
         {
-          "sample_site_id": "car_standard_emissive|CarLightScenario|%232|t17",
-          "instruction_id": "%232",
+          "sample_site_id": "car_label|CarLightScenario|%146|t17",
+          "instruction_id": "%146",
+          "texture_register": 17,
+          "sampler_register": 1,
+          "expected_comps": [
+            3
+          ],
+          "uv_expression": {
+            "kind": "Select",
+            "predicate": {
+              "param_hash": "0x402B8ED0",
+              "param_name": "UVChoice_OnCh1_OffCh2",
+              "type": 3,
+              "true_when": "nonzero",
+              "missing_policy": "reject"
+            },
+            "true": "TEXCOORD0",
+            "false": "TEXCOORD1",
+            "evidence": [
+              "DXIL multi-TEXCOORD on this sample; UVChoice Select when SHA-proven"
+            ]
+          },
+          "uv_branch_status": "EXECUTABLE_PREDICATE",
+          "branch_status": "EXECUTABLE_PREDICATE",
+          "declared_txmp_name": "BaseColorAlpha",
+          "semantic_role": "BaseColorAlpha",
+          "final_use": "SV_Target.a / discard",
+          "blender_import": true,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%146",
+            "t17",
+            "comps=[3]",
+            "feeds_sv_target_alpha_or_discard_chain",
+            "archive=car_labelCarLightScenario.pcdxil.pso",
+            "pso_sha256=63cbd682065fb207c108961d7b0c83adff000e843f46888106885582bdde864b",
+            "pass_identity_key=35bccc9b43710c37|root|CarLightScenario|ps|63cbd682065fb207"
+          ]
+        },
+        {
+          "sample_site_id": "car_label|CarLightScenario|%166|t16",
+          "instruction_id": "%166",
+          "texture_register": 16,
+          "sampler_register": 1,
+          "expected_comps": [
+            0
+          ],
+          "uv_expression": {
+            "kind": "Select",
+            "predicate": {
+              "param_hash": "0x402B8ED0",
+              "param_name": "UVChoice_OnCh1_OffCh2",
+              "type": 3,
+              "true_when": "nonzero",
+              "missing_policy": "reject"
+            },
+            "true": "TEXCOORD0",
+            "false": "TEXCOORD1",
+            "evidence": [
+              "DXIL multi-TEXCOORD on this sample; UVChoice Select when SHA-proven"
+            ]
+          },
+          "uv_branch_status": "EXECUTABLE_PREDICATE",
+          "branch_status": "EXECUTABLE_PREDICATE",
+          "declared_txmp_name": "Alpha",
+          "semantic_role": "Alpha",
+          "final_use": "SV_Target.a / discard",
+          "blender_import": true,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%166",
+            "t16",
+            "comps=[0]",
+            "feeds_sv_target_alpha_or_discard_chain",
+            "archive=car_labelCarLightScenario.pcdxil.pso",
+            "pso_sha256=63cbd682065fb207c108961d7b0c83adff000e843f46888106885582bdde864b",
+            "pass_identity_key=35bccc9b43710c37|root|CarLightScenario|ps|63cbd682065fb207"
+          ]
+        },
+        {
+          "sample_site_id": "car_label|CarLightScenario|%307|t17",
+          "instruction_id": "%307",
           "texture_register": 17,
           "sampler_register": 1,
           "expected_comps": [
@@ -51,59 +131,18 @@
           "blender_import": true,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%232",
+            "instruction=%307",
             "t17",
             "comps=[0, 1, 2]",
-            "archive=car_standard_emissiveCarLightScenario.pcdxil.pso",
-            "pso_sha256=3b9564433f2b0992c6266241282797a7f1f9990e93fef71f5f46482c651acb4d",
-            "pass_identity_key=8d4ef07a59378e68|root|CarLightScenario|ps|3b9564433f2b0992"
+            "archive=car_labelCarLightScenario.pcdxil.pso",
+            "pso_sha256=63cbd682065fb207c108961d7b0c83adff000e843f46888106885582bdde864b",
+            "pass_identity_key=35bccc9b43710c37|root|CarLightScenario|ps|63cbd682065fb207"
           ]
         },
         {
-          "sample_site_id": "car_standard_emissive|CarLightScenario|%260|t21",
-          "instruction_id": "%260",
-          "texture_register": 21,
-          "sampler_register": 1,
-          "expected_comps": [
-            0,
-            1,
-            2
-          ],
-          "uv_expression": {
-            "kind": "Select",
-            "predicate": {
-              "param_hash": "0x402B8ED0",
-              "param_name": "UVChoice_OnCh1_OffCh2",
-              "type": 3,
-              "true_when": "nonzero",
-              "missing_policy": "reject"
-            },
-            "true": "TEXCOORD0",
-            "false": "TEXCOORD1",
-            "evidence": [
-              "DXIL multi-TEXCOORD on this sample; UVChoice Select when SHA-proven"
-            ]
-          },
-          "uv_branch_status": "EXECUTABLE_PREDICATE",
-          "branch_status": "EXECUTABLE_PREDICATE",
-          "declared_txmp_name": null,
-          "semantic_role": "unresolved",
-          "final_use": "surface_shading",
-          "blender_import": false,
-          "blender_relevance": "MAIN_SURFACE_SHADING",
-          "evidence": [
-            "instruction=%260",
-            "t21",
-            "comps=[0, 1, 2]",
-            "archive=car_standard_emissiveCarLightScenario.pcdxil.pso",
-            "pso_sha256=3b9564433f2b0992c6266241282797a7f1f9990e93fef71f5f46482c651acb4d",
-            "pass_identity_key=8d4ef07a59378e68|root|CarLightScenario|ps|3b9564433f2b0992"
-          ]
-        },
-        {
-          "sample_site_id": "car_standard_emissive|CarLightScenario|%321|t20",
-          "instruction_id": "%321",
-          "texture_register": 20,
+          "sample_site_id": "car_label|CarLightScenario|%353|t18",
+          "instruction_id": "%353",
+          "texture_register": 18,
           "sampler_register": 1,
           "expected_comps": [
             0,
@@ -126,76 +165,23 @@
           },
           "uv_branch_status": "EXECUTABLE_PREDICATE",
           "branch_status": "EXECUTABLE_PREDICATE",
-          "declared_txmp_name": "Normal",
-          "semantic_role": "Normal",
-          "final_use": "surface_shading",
-          "blender_import": true,
-          "blender_relevance": "MAIN_SURFACE_SHADING",
-          "evidence": [
-            "instruction=%321",
-            "t20",
-            "comps=[0, 1]",
-            "archive=car_standard_emissiveCarLightScenario.pcdxil.pso",
-            "pso_sha256=3b9564433f2b0992c6266241282797a7f1f9990e93fef71f5f46482c651acb4d",
-            "pass_identity_key=8d4ef07a59378e68|root|CarLightScenario|ps|3b9564433f2b0992"
-          ]
-        },
-        {
-          "sample_site_id": "car_standard_emissive|CarLightScenario|%406|t18",
-          "instruction_id": "%406",
-          "texture_register": 18,
-          "sampler_register": 1,
-          "expected_comps": [
-            0,
-            1,
-            2,
-            3
-          ],
-          "uv_expression": "TEXCOORD0",
-          "uv_branch_status": "PASS_SCOPED",
-          "branch_status": "PASS_SCOPED",
           "declared_txmp_name": "WeaveMask",
           "semantic_role": "WeaveMask",
           "final_use": "surface_shading",
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%406",
+            "instruction=%353",
             "t18",
-            "comps=[0, 1, 2, 3]",
-            "archive=car_standard_emissiveCarLightScenario.pcdxil.pso",
-            "pso_sha256=3b9564433f2b0992c6266241282797a7f1f9990e93fef71f5f46482c651acb4d",
-            "pass_identity_key=8d4ef07a59378e68|root|CarLightScenario|ps|3b9564433f2b0992"
+            "comps=[0, 1]",
+            "archive=car_labelCarLightScenario.pcdxil.pso",
+            "pso_sha256=63cbd682065fb207c108961d7b0c83adff000e843f46888106885582bdde864b",
+            "pass_identity_key=35bccc9b43710c37|root|CarLightScenario|ps|63cbd682065fb207"
           ]
         },
         {
-          "sample_site_id": "car_standard_emissive|CarLightScenario|%429|t19",
-          "instruction_id": "%429",
-          "texture_register": 19,
-          "sampler_register": 1,
-          "expected_comps": [
-            0
-          ],
-          "uv_expression": "TEXCOORD0",
-          "uv_branch_status": "PASS_SCOPED",
-          "branch_status": "PASS_SCOPED",
-          "declared_txmp_name": "WeaveNormal",
-          "semantic_role": "WeaveNormal",
-          "final_use": "surface_shading",
-          "blender_import": false,
-          "blender_relevance": "MAIN_SURFACE_SHADING",
-          "evidence": [
-            "instruction=%429",
-            "t19",
-            "comps=[0]",
-            "archive=car_standard_emissiveCarLightScenario.pcdxil.pso",
-            "pso_sha256=3b9564433f2b0992c6266241282797a7f1f9990e93fef71f5f46482c651acb4d",
-            "pass_identity_key=8d4ef07a59378e68|root|CarLightScenario|ps|3b9564433f2b0992"
-          ]
-        },
-        {
-          "sample_site_id": "car_standard_emissive|CarLightScenario|%748|t117",
-          "instruction_id": "%748",
+          "sample_site_id": "car_label|CarLightScenario|%670|t117",
+          "instruction_id": "%670",
           "texture_register": 117,
           "sampler_register": 1,
           "expected_comps": [
@@ -210,17 +196,17 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%748",
+            "instruction=%670",
             "t117",
             "comps=[0]",
-            "archive=car_standard_emissiveCarLightScenario.pcdxil.pso",
-            "pso_sha256=3b9564433f2b0992c6266241282797a7f1f9990e93fef71f5f46482c651acb4d",
-            "pass_identity_key=8d4ef07a59378e68|root|CarLightScenario|ps|3b9564433f2b0992"
+            "archive=car_labelCarLightScenario.pcdxil.pso",
+            "pso_sha256=63cbd682065fb207c108961d7b0c83adff000e843f46888106885582bdde864b",
+            "pass_identity_key=35bccc9b43710c37|root|CarLightScenario|ps|63cbd682065fb207"
           ]
         },
         {
-          "sample_site_id": "car_standard_emissive|CarLightScenario|%771|t115",
-          "instruction_id": "%771",
+          "sample_site_id": "car_label|CarLightScenario|%693|t115",
+          "instruction_id": "%693",
           "texture_register": 115,
           "sampler_register": 1,
           "expected_comps": [
@@ -238,47 +224,17 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%771",
+            "instruction=%693",
             "t115",
             "comps=[0, 1, 2, 3]",
-            "archive=car_standard_emissiveCarLightScenario.pcdxil.pso",
-            "pso_sha256=3b9564433f2b0992c6266241282797a7f1f9990e93fef71f5f46482c651acb4d",
-            "pass_identity_key=8d4ef07a59378e68|root|CarLightScenario|ps|3b9564433f2b0992"
+            "archive=car_labelCarLightScenario.pcdxil.pso",
+            "pso_sha256=63cbd682065fb207c108961d7b0c83adff000e843f46888106885582bdde864b",
+            "pass_identity_key=35bccc9b43710c37|root|CarLightScenario|ps|63cbd682065fb207"
           ]
         },
         {
-          "sample_site_id": "car_standard_emissive|CarLightScenario|%814|t38",
-          "instruction_id": "%814",
-          "texture_register": 38,
-          "sampler_register": 11,
-          "expected_comps": [
-            0,
-            1,
-            2
-          ],
-          "uv_expression": {
-            "kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT",
-            "note": "NON_MESH_OR_UNRESOLVED; coords=(%810,%811)"
-          },
-          "uv_branch_status": "PASS_SCOPED",
-          "branch_status": "PASS_SCOPED",
-          "declared_txmp_name": null,
-          "semantic_role": "unresolved",
-          "final_use": "surface_shading",
-          "blender_import": false,
-          "blender_relevance": "MAIN_SURFACE_SHADING",
-          "evidence": [
-            "instruction=%814",
-            "t38",
-            "comps=[0, 1, 2]",
-            "archive=car_standard_emissiveCarLightScenario.pcdxil.pso",
-            "pso_sha256=3b9564433f2b0992c6266241282797a7f1f9990e93fef71f5f46482c651acb4d",
-            "pass_identity_key=8d4ef07a59378e68|root|CarLightScenario|ps|3b9564433f2b0992"
-          ]
-        },
-        {
-          "sample_site_id": "car_standard_emissive|CarLightScenario|%1570|t8",
-          "instruction_id": "%1570",
+          "sample_site_id": "car_label|CarLightScenario|%1478|t8",
+          "instruction_id": "%1478",
           "texture_register": 8,
           "sampler_register": 0,
           "expected_comps": [
@@ -286,7 +242,7 @@
           ],
           "uv_expression": {
             "kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT",
-            "note": "NON_MESH_OR_UNRESOLVED; coords=(%1562,%1563)"
+            "note": "NON_MESH_OR_UNRESOLVED; coords=(%1470,%1471)"
           },
           "uv_branch_status": "PASS_SCOPED",
           "branch_status": "PASS_SCOPED",
@@ -296,17 +252,17 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%1570",
+            "instruction=%1478",
             "t8",
             "comps=[0]",
-            "archive=car_standard_emissiveCarLightScenario.pcdxil.pso",
-            "pso_sha256=3b9564433f2b0992c6266241282797a7f1f9990e93fef71f5f46482c651acb4d",
-            "pass_identity_key=8d4ef07a59378e68|root|CarLightScenario|ps|3b9564433f2b0992"
+            "archive=car_labelCarLightScenario.pcdxil.pso",
+            "pso_sha256=63cbd682065fb207c108961d7b0c83adff000e843f46888106885582bdde864b",
+            "pass_identity_key=35bccc9b43710c37|root|CarLightScenario|ps|63cbd682065fb207"
           ]
         },
         {
-          "sample_site_id": "car_standard_emissive|CarLightScenario|%1801|t123",
-          "instruction_id": "%1801",
+          "sample_site_id": "car_label|CarLightScenario|%1702|t123",
+          "instruction_id": "%1702",
           "texture_register": 123,
           "sampler_register": 2,
           "expected_comps": [
@@ -324,17 +280,45 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%1801",
+            "instruction=%1702",
             "t123",
             "comps=[0, 1, 2, 3]",
-            "archive=car_standard_emissiveCarLightScenario.pcdxil.pso",
-            "pso_sha256=3b9564433f2b0992c6266241282797a7f1f9990e93fef71f5f46482c651acb4d",
-            "pass_identity_key=8d4ef07a59378e68|root|CarLightScenario|ps|3b9564433f2b0992"
+            "archive=car_labelCarLightScenario.pcdxil.pso",
+            "pso_sha256=63cbd682065fb207c108961d7b0c83adff000e843f46888106885582bdde864b",
+            "pass_identity_key=35bccc9b43710c37|root|CarLightScenario|ps|63cbd682065fb207"
           ]
         },
         {
-          "sample_site_id": "car_standard_emissive|CarLightScenario|%2244|t7",
-          "instruction_id": "%2244",
+          "sample_site_id": "car_label|CarLightScenario|%1784|t116",
+          "instruction_id": "%1784",
+          "texture_register": 116,
+          "sampler_register": 0,
+          "expected_comps": [
+            0
+          ],
+          "uv_expression": {
+            "kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT",
+            "note": "NON_MESH_OR_UNRESOLVED; coords=(%1780,%1781)"
+          },
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%1784",
+            "t116",
+            "comps=[0]",
+            "archive=car_labelCarLightScenario.pcdxil.pso",
+            "pso_sha256=63cbd682065fb207c108961d7b0c83adff000e843f46888106885582bdde864b",
+            "pass_identity_key=35bccc9b43710c37|root|CarLightScenario|ps|63cbd682065fb207"
+          ]
+        },
+        {
+          "sample_site_id": "car_label|CarLightScenario|%2155|t7",
+          "instruction_id": "%2155",
           "texture_register": 7,
           "sampler_register": 0,
           "expected_comps": [
@@ -365,17 +349,17 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%2244",
+            "instruction=%2155",
             "t7",
             "comps=[0, 1, 2]",
-            "archive=car_standard_emissiveCarLightScenario.pcdxil.pso",
-            "pso_sha256=3b9564433f2b0992c6266241282797a7f1f9990e93fef71f5f46482c651acb4d",
-            "pass_identity_key=8d4ef07a59378e68|root|CarLightScenario|ps|3b9564433f2b0992"
+            "archive=car_labelCarLightScenario.pcdxil.pso",
+            "pso_sha256=63cbd682065fb207c108961d7b0c83adff000e843f46888106885582bdde864b",
+            "pass_identity_key=35bccc9b43710c37|root|CarLightScenario|ps|63cbd682065fb207"
           ]
         },
         {
-          "sample_site_id": "car_standard_emissive|CarLightScenario|%2277|t1",
-          "instruction_id": "%2277",
+          "sample_site_id": "car_label|CarLightScenario|%2188|t1",
+          "instruction_id": "%2188",
           "texture_register": 1,
           "sampler_register": 5,
           "expected_comps": [
@@ -406,17 +390,17 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%2277",
+            "instruction=%2188",
             "t1",
             "comps=[0, 1, 2]",
-            "archive=car_standard_emissiveCarLightScenario.pcdxil.pso",
-            "pso_sha256=3b9564433f2b0992c6266241282797a7f1f9990e93fef71f5f46482c651acb4d",
-            "pass_identity_key=8d4ef07a59378e68|root|CarLightScenario|ps|3b9564433f2b0992"
+            "archive=car_labelCarLightScenario.pcdxil.pso",
+            "pso_sha256=63cbd682065fb207c108961d7b0c83adff000e843f46888106885582bdde864b",
+            "pass_identity_key=35bccc9b43710c37|root|CarLightScenario|ps|63cbd682065fb207"
           ]
         },
         {
-          "sample_site_id": "car_standard_emissive|CarLightScenario|%2358|t1",
-          "instruction_id": "%2358",
+          "sample_site_id": "car_label|CarLightScenario|%2269|t1",
+          "instruction_id": "%2269",
           "texture_register": 1,
           "sampler_register": 5,
           "expected_comps": [
@@ -447,17 +431,17 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%2358",
+            "instruction=%2269",
             "t1",
             "comps=[0, 1, 2]",
-            "archive=car_standard_emissiveCarLightScenario.pcdxil.pso",
-            "pso_sha256=3b9564433f2b0992c6266241282797a7f1f9990e93fef71f5f46482c651acb4d",
-            "pass_identity_key=8d4ef07a59378e68|root|CarLightScenario|ps|3b9564433f2b0992"
+            "archive=car_labelCarLightScenario.pcdxil.pso",
+            "pso_sha256=63cbd682065fb207c108961d7b0c83adff000e843f46888106885582bdde864b",
+            "pass_identity_key=35bccc9b43710c37|root|CarLightScenario|ps|63cbd682065fb207"
           ]
         },
         {
-          "sample_site_id": "car_standard_emissive|CarLightScenario|%3116|t4",
-          "instruction_id": "%3116",
+          "sample_site_id": "car_label|CarLightScenario|%3013|t4",
+          "instruction_id": "%3013",
           "texture_register": 4,
           "sampler_register": 5,
           "expected_comps": [
@@ -474,17 +458,17 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%3116",
+            "instruction=%3013",
             "t4",
             "comps=[0, 1, 2]",
-            "archive=car_standard_emissiveCarLightScenario.pcdxil.pso",
-            "pso_sha256=3b9564433f2b0992c6266241282797a7f1f9990e93fef71f5f46482c651acb4d",
-            "pass_identity_key=8d4ef07a59378e68|root|CarLightScenario|ps|3b9564433f2b0992"
+            "archive=car_labelCarLightScenario.pcdxil.pso",
+            "pso_sha256=63cbd682065fb207c108961d7b0c83adff000e843f46888106885582bdde864b",
+            "pass_identity_key=35bccc9b43710c37|root|CarLightScenario|ps|63cbd682065fb207"
           ]
         },
         {
-          "sample_site_id": "car_standard_emissive|CarLightScenario|%4070|t118",
-          "instruction_id": "%4070",
+          "sample_site_id": "car_label|CarLightScenario|%3967|t118",
+          "instruction_id": "%3967",
           "texture_register": 118,
           "sampler_register": 1,
           "expected_comps": [
@@ -501,17 +485,17 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%4070",
+            "instruction=%3967",
             "t118",
             "comps=[0, 1, 2]",
-            "archive=car_standard_emissiveCarLightScenario.pcdxil.pso",
-            "pso_sha256=3b9564433f2b0992c6266241282797a7f1f9990e93fef71f5f46482c651acb4d",
-            "pass_identity_key=8d4ef07a59378e68|root|CarLightScenario|ps|3b9564433f2b0992"
+            "archive=car_labelCarLightScenario.pcdxil.pso",
+            "pso_sha256=63cbd682065fb207c108961d7b0c83adff000e843f46888106885582bdde864b",
+            "pass_identity_key=35bccc9b43710c37|root|CarLightScenario|ps|63cbd682065fb207"
           ]
         },
         {
-          "sample_site_id": "car_standard_emissive|CarLightScenario|%4175|t124",
-          "instruction_id": "%4175",
+          "sample_site_id": "car_label|CarLightScenario|%4072|t124",
+          "instruction_id": "%4072",
           "texture_register": 124,
           "sampler_register": 2,
           "expected_comps": [
@@ -522,7 +506,7 @@
           ],
           "uv_expression": {
             "kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT",
-            "note": "NON_MESH_OR_UNRESOLVED; coords=(%4149,%4152)"
+            "note": "NON_MESH_OR_UNRESOLVED; coords=(%4046,%4049)"
           },
           "uv_branch_status": "PASS_SCOPED",
           "branch_status": "PASS_SCOPED",
@@ -532,57 +516,12 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%4175",
+            "instruction=%4072",
             "t124",
             "comps=[0, 1, 2, 3]",
-            "archive=car_standard_emissiveCarLightScenario.pcdxil.pso",
-            "pso_sha256=3b9564433f2b0992c6266241282797a7f1f9990e93fef71f5f46482c651acb4d",
-            "pass_identity_key=8d4ef07a59378e68|root|CarLightScenario|ps|3b9564433f2b0992"
-          ]
-        }
-      ]
-    },
-    {
-      "scenario": "SimpleCarLightScenario",
-      "variant": "",
-      "archive_member": "car_standard_emissiveSimpleCarLightScenario.pcdxil.pso",
-      "stage": "ps",
-      "blender_relevance": "SURFACE_VISIBILITY",
-      "reason": "Alpha t16 visibility with proven UVChoice branch.",
-      "import_sample_sites": [
-        {
-          "sample_site_id": "emissive|SimpleCarLight|t16|alpha",
-          "texture_register": 16,
-          "sampler_register": 1,
-          "expected_comps": [
-            0
-          ],
-          "uv_expression": {
-            "kind": "Select",
-            "predicate": {
-              "param_hash": "0x402B8ED0",
-              "param_name": "UVChoice_OnCh1_OffCh2",
-              "type": 3,
-              "true_when": "nonzero",
-              "missing_policy": "reject",
-              "cb_slot": "c13.0"
-            },
-            "true": "TEXCOORD0",
-            "false": "TEXCOORD1"
-          },
-          "uv_branch_status": "PROVEN_SWITCH",
-          "declared_txmp_name": "Alpha",
-          "declared_txmp_hash": "0x698CA64F",
-          "semantic_role": "alpha_mask",
-          "final_use": "SV_Target.a / discard",
-          "active_branch": "SimpleCarLightScenario + UVChoice MatI",
-          "mati_provenance": "TXMP Alpha; UVChoice_OnCh1_OffCh2 independently proven on this SHA",
-          "blender_import": true,
-          "blender_relevance": "SURFACE_VISIBILITY",
-          "evidence": [
-            "DXIL: %118=icmp eq UVChoice,0; phi %121/%122 TEXCOORD1 vs TEXCOORD0",
-            "Polarity matches OnCh1_OffCh2; exact SHA 8d4ef07a\u2026 only",
-            "Feeds Alpha t16 sample %530 coords %526/%527"
+            "archive=car_labelCarLightScenario.pcdxil.pso",
+            "pso_sha256=63cbd682065fb207c108961d7b0c83adff000e843f46888106885582bdde864b",
+            "pass_identity_key=35bccc9b43710c37|root|CarLightScenario|ps|63cbd682065fb207"
           ]
         }
       ]

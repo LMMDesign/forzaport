@@ -1,26 +1,26 @@
 {
   "schema_version": 1,
-  "shader_name": "car_livery",
-  "shaderbin_sha256": "f1617a600d251bc8acb78abf939ce6b1b223ea23afee8f4fb592094c135051bb",
+  "shader_name": "car_brakerotor",
+  "shaderbin_sha256": "384692abfe3daace9b29f2580c60c23a171192e8c5e9fd6b3be10989b255f106",
   "status": "APPROVED_PARTIAL",
-  "schema_notes": "Declared TXMP Alpha@t16 exists; CarLightScenario does not sample it.",
+  "schema_notes": "Primary CarLight sample-site contracts generated from DXIL inventory.",
   "relevant_passes": [
     {
       "scenario": "CarLightScenario",
       "variant": "",
-      "archive_member": "car_liveryCarLightScenario.pcdxil.pso",
+      "archive_member": "car_brakerotorCarLightScenario.pcdxil.pso",
       "stage": "ps",
-      "pso_sha256": "12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
+      "pso_sha256": "9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
       "blender_relevance": "MAIN_SURFACE_SHADING",
       "reason": "Primary CarLightScenario sample sites from DXIL inventory.",
       "relevance_evidence": [
         "DXIL CarLightScenario PSO sample instructions",
-        "family=car_livery sha=f1617a600d251bc8\u2026"
+        "family=car_brakerotor sha=384692abfe3daace\u2026"
       ],
       "import_sample_sites": [
         {
-          "sample_site_id": "car_livery|CarLightScenario|%165|t17",
-          "instruction_id": "%165",
+          "sample_site_id": "car_brakerotor|CarLightScenario|%183|t17",
+          "instruction_id": "%183",
           "texture_register": 17,
           "sampler_register": 1,
           "expected_comps": [
@@ -38,18 +38,18 @@
           "blender_import": true,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%165",
+            "instruction=%183",
             "t17",
             "comps=[0, 1, 2, 3]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         },
         {
-          "sample_site_id": "car_livery|CarLightScenario|%191|t26",
-          "instruction_id": "%191",
-          "texture_register": 26,
+          "sample_site_id": "car_brakerotor|CarLightScenario|%197|t24",
+          "instruction_id": "%197",
+          "texture_register": 24,
           "sampler_register": 1,
           "expected_comps": [
             0,
@@ -59,49 +59,49 @@
           "uv_expression": "TEXCOORD0",
           "uv_branch_status": "PASS_SCOPED",
           "branch_status": "PASS_SCOPED",
-          "declared_txmp_name": "RoughMetalAO",
-          "semantic_role": "RoughMetalAO",
-          "final_use": "surface_shading",
-          "blender_import": false,
-          "blender_relevance": "MAIN_SURFACE_SHADING",
-          "evidence": [
-            "instruction=%191",
-            "t26",
-            "comps=[0, 1, 2]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
-          ]
-        },
-        {
-          "sample_site_id": "car_livery|CarLightScenario|%209|t24",
-          "instruction_id": "%209",
-          "texture_register": 24,
-          "sampler_register": 1,
-          "expected_comps": [
-            0,
-            1
-          ],
-          "uv_expression": "TEXCOORD1",
-          "uv_branch_status": "PASS_SCOPED",
-          "branch_status": "PASS_SCOPED",
           "declared_txmp_name": null,
           "semantic_role": "unresolved",
           "final_use": "surface_shading",
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%209",
+            "instruction=%197",
             "t24",
-            "comps=[0, 1]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
+            "comps=[0, 1, 2]",
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         },
         {
-          "sample_site_id": "car_livery|CarLightScenario|%307|t22",
-          "instruction_id": "%307",
+          "sample_site_id": "car_brakerotor|CarLightScenario|%250|t20",
+          "instruction_id": "%250",
+          "texture_register": 20,
+          "sampler_register": 1,
+          "expected_comps": [
+            0,
+            1
+          ],
+          "uv_expression": "TEXCOORD0",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": "Normal",
+          "semantic_role": "Normal",
+          "final_use": "surface_shading",
+          "blender_import": true,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%250",
+            "t20",
+            "comps=[0, 1]",
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
+          ]
+        },
+        {
+          "sample_site_id": "car_brakerotor|CarLightScenario|%339|t22",
+          "instruction_id": "%339",
           "texture_register": 22,
           "sampler_register": 1,
           "expected_comps": [
@@ -118,18 +118,18 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%307",
+            "instruction=%339",
             "t22",
             "comps=[0, 1, 3]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         },
         {
-          "sample_site_id": "car_livery|CarLightScenario|%446|t33",
-          "instruction_id": "%446",
-          "texture_register": 33,
+          "sample_site_id": "car_brakerotor|CarLightScenario|%478|t30",
+          "instruction_id": "%478",
+          "texture_register": 30,
           "sampler_register": 1,
           "expected_comps": [
             0,
@@ -144,17 +144,17 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%446",
-            "t33",
+            "instruction=%478",
+            "t30",
             "comps=[0, 1]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         },
         {
-          "sample_site_id": "car_livery|CarLightScenario|%450|t19",
-          "instruction_id": "%450",
+          "sample_site_id": "car_brakerotor|CarLightScenario|%482|t19",
+          "instruction_id": "%482",
           "texture_register": 19,
           "sampler_register": 1,
           "expected_comps": [
@@ -171,17 +171,17 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%450",
+            "instruction=%482",
             "t19",
             "comps=[0, 1, 2]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         },
         {
-          "sample_site_id": "car_livery|CarLightScenario|%458|t18",
-          "instruction_id": "%458",
+          "sample_site_id": "car_brakerotor|CarLightScenario|%490|t18",
+          "instruction_id": "%490",
           "texture_register": 18,
           "sampler_register": 1,
           "expected_comps": [
@@ -199,74 +199,21 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%458",
+            "instruction=%490",
             "t18",
             "comps=[0, 1, 2, 3]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         },
         {
-          "sample_site_id": "car_livery|CarLightScenario|%466|t30",
-          "instruction_id": "%466",
-          "texture_register": 30,
-          "sampler_register": 1,
-          "expected_comps": [
-            0
-          ],
-          "uv_expression": "TEXCOORD1",
-          "uv_branch_status": "PASS_SCOPED",
-          "branch_status": "PASS_SCOPED",
-          "declared_txmp_name": null,
-          "semantic_role": "unresolved",
-          "final_use": "surface_shading",
-          "blender_import": false,
-          "blender_relevance": "MAIN_SURFACE_SHADING",
-          "evidence": [
-            "instruction=%466",
-            "t30",
-            "comps=[0]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
-          ]
-        },
-        {
-          "sample_site_id": "car_livery|CarLightScenario|%480|t29",
-          "instruction_id": "%480",
-          "texture_register": 29,
-          "sampler_register": 1,
-          "expected_comps": [
-            0
-          ],
-          "uv_expression": "TEXCOORD1",
-          "uv_branch_status": "PASS_SCOPED",
-          "branch_status": "PASS_SCOPED",
-          "declared_txmp_name": null,
-          "semantic_role": "unresolved",
-          "final_use": "surface_shading",
-          "blender_import": false,
-          "blender_relevance": "MAIN_SURFACE_SHADING",
-          "evidence": [
-            "instruction=%480",
-            "t29",
-            "comps=[0]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
-          ]
-        },
-        {
-          "sample_site_id": "car_livery|CarLightScenario|%483|t28",
-          "instruction_id": "%483",
+          "sample_site_id": "car_brakerotor|CarLightScenario|%498|t28",
+          "instruction_id": "%498",
           "texture_register": 28,
           "sampler_register": 1,
           "expected_comps": [
-            0,
-            1,
-            2,
-            3
+            0
           ],
           "uv_expression": "TEXCOORD1",
           "uv_branch_status": "PASS_SCOPED",
@@ -277,18 +224,43 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%483",
+            "instruction=%498",
             "t28",
-            "comps=[0, 1, 2, 3]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
+            "comps=[0]",
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         },
         {
-          "sample_site_id": "car_livery|CarLightScenario|%489|t27",
-          "instruction_id": "%489",
+          "sample_site_id": "car_brakerotor|CarLightScenario|%512|t27",
+          "instruction_id": "%512",
           "texture_register": 27,
+          "sampler_register": 1,
+          "expected_comps": [
+            0
+          ],
+          "uv_expression": "TEXCOORD1",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%512",
+            "t27",
+            "comps=[0]",
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
+          ]
+        },
+        {
+          "sample_site_id": "car_brakerotor|CarLightScenario|%515|t26",
+          "instruction_id": "%515",
+          "texture_register": 26,
           "sampler_register": 1,
           "expected_comps": [
             0,
@@ -299,23 +271,51 @@
           "uv_expression": "TEXCOORD1",
           "uv_branch_status": "PASS_SCOPED",
           "branch_status": "PASS_SCOPED",
-          "declared_txmp_name": null,
-          "semantic_role": "unresolved",
+          "declared_txmp_name": "RoughMetalAO",
+          "semantic_role": "RoughMetalAO",
           "final_use": "surface_shading",
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%489",
-            "t27",
+            "instruction=%515",
+            "t26",
             "comps=[0, 1, 2, 3]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         },
         {
-          "sample_site_id": "car_livery|CarLightScenario|%495|t21",
-          "instruction_id": "%495",
+          "sample_site_id": "car_brakerotor|CarLightScenario|%521|t25",
+          "instruction_id": "%521",
+          "texture_register": 25,
+          "sampler_register": 1,
+          "expected_comps": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "uv_expression": "TEXCOORD1",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": "RoughMetalAO",
+          "semantic_role": "RoughMetalAO",
+          "final_use": "surface_shading",
+          "blender_import": true,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%521",
+            "t25",
+            "comps=[0, 1, 2, 3]",
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
+          ]
+        },
+        {
+          "sample_site_id": "car_brakerotor|CarLightScenario|%527|t21",
+          "instruction_id": "%527",
           "texture_register": 21,
           "sampler_register": 1,
           "expected_comps": [
@@ -331,19 +331,19 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%495",
+            "instruction=%527",
             "t21",
             "comps=[0, 1]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         },
         {
-          "sample_site_id": "car_livery|CarLightScenario|%1359|t23",
-          "instruction_id": "%1359",
+          "sample_site_id": "car_brakerotor|CarLightScenario|%1391|t23",
+          "instruction_id": "%1391",
           "texture_register": 23,
-          "sampler_register": 14,
+          "sampler_register": 12,
           "expected_comps": [
             0,
             1
@@ -357,124 +357,70 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%1359",
+            "instruction=%1391",
             "t23",
             "comps=[0, 1]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         },
         {
-          "sample_site_id": "car_livery|CarLightScenario|%1527|t25",
-          "instruction_id": "%1527",
-          "texture_register": 25,
-          "sampler_register": 13,
-          "expected_comps": [
-            0,
-            1,
-            2
-          ],
-          "uv_expression": {
-            "kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT",
-            "note": "NON_MESH_OR_UNRESOLVED; coords=(%85,%84)"
-          },
-          "uv_branch_status": "PASS_SCOPED",
-          "branch_status": "PASS_SCOPED",
-          "declared_txmp_name": "RoughMetalAO",
-          "semantic_role": "RoughMetalAO",
-          "final_use": "surface_shading",
-          "blender_import": true,
-          "blender_relevance": "MAIN_SURFACE_SHADING",
-          "evidence": [
-            "instruction=%1527",
-            "t25",
-            "comps=[0, 1, 2]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
-          ]
-        },
-        {
-          "sample_site_id": "car_livery|CarLightScenario|%2023|t20",
-          "instruction_id": "%2023",
-          "texture_register": 20,
+          "sample_site_id": "car_brakerotor|CarLightScenario|%1553|t29",
+          "instruction_id": "%1553",
+          "texture_register": 29,
           "sampler_register": 1,
           "expected_comps": [
             0,
             1,
+            2,
             3
           ],
-          "uv_expression": "TEXCOORD4",
+          "uv_expression": "TEXCOORD3",
           "uv_branch_status": "PASS_SCOPED",
           "branch_status": "PASS_SCOPED",
-          "declared_txmp_name": "Normal",
-          "semantic_role": "Normal",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%1553",
+            "t29",
+            "comps=[0, 1, 2, 3]",
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
+          ]
+        },
+        {
+          "sample_site_id": "car_brakerotor|CarLightScenario|%1611|t16",
+          "instruction_id": "%1611",
+          "texture_register": 16,
+          "sampler_register": 1,
+          "expected_comps": [
+            0
+          ],
+          "uv_expression": "TEXCOORD0",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": "Alpha",
+          "semantic_role": "Alpha",
           "final_use": "surface_shading",
           "blender_import": true,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%2023",
-            "t20",
-            "comps=[0, 1, 3]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
-          ]
-        },
-        {
-          "sample_site_id": "car_livery|CarLightScenario|%2084|t32",
-          "instruction_id": "%2084",
-          "texture_register": 32,
-          "sampler_register": 1,
-          "expected_comps": [
-            0
-          ],
-          "uv_expression": "TEXCOORD4",
-          "uv_branch_status": "PASS_SCOPED",
-          "branch_status": "PASS_SCOPED",
-          "declared_txmp_name": null,
-          "semantic_role": "unresolved",
-          "final_use": "surface_shading",
-          "blender_import": false,
-          "blender_relevance": "MAIN_SURFACE_SHADING",
-          "evidence": [
-            "instruction=%2084",
-            "t32",
+            "instruction=%1611",
+            "t16",
             "comps=[0]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         },
         {
-          "sample_site_id": "car_livery|CarLightScenario|%2204|t31",
-          "instruction_id": "%2204",
-          "texture_register": 31,
-          "sampler_register": 1,
-          "expected_comps": [
-            0
-          ],
-          "uv_expression": "TEXCOORD4",
-          "uv_branch_status": "PASS_SCOPED",
-          "branch_status": "PASS_SCOPED",
-          "declared_txmp_name": null,
-          "semantic_role": "unresolved",
-          "final_use": "surface_shading",
-          "blender_import": false,
-          "blender_relevance": "MAIN_SURFACE_SHADING",
-          "evidence": [
-            "instruction=%2204",
-            "t31",
-            "comps=[0]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
-          ]
-        },
-        {
-          "sample_site_id": "car_livery|CarLightScenario|%2491|t117",
-          "instruction_id": "%2491",
+          "sample_site_id": "car_brakerotor|CarLightScenario|%1817|t117",
+          "instruction_id": "%1817",
           "texture_register": 117,
           "sampler_register": 1,
           "expected_comps": [
@@ -489,17 +435,17 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%2491",
+            "instruction=%1817",
             "t117",
             "comps=[0]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         },
         {
-          "sample_site_id": "car_livery|CarLightScenario|%2514|t115",
-          "instruction_id": "%2514",
+          "sample_site_id": "car_brakerotor|CarLightScenario|%1840|t115",
+          "instruction_id": "%1840",
           "texture_register": 115,
           "sampler_register": 1,
           "expected_comps": [
@@ -517,17 +463,17 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%2514",
+            "instruction=%1840",
             "t115",
             "comps=[0, 1, 2, 3]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         },
         {
-          "sample_site_id": "car_livery|CarLightScenario|%2557|t38",
-          "instruction_id": "%2557",
+          "sample_site_id": "car_brakerotor|CarLightScenario|%1883|t38",
+          "instruction_id": "%1883",
           "texture_register": 38,
           "sampler_register": 11,
           "expected_comps": [
@@ -537,7 +483,7 @@
           ],
           "uv_expression": {
             "kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT",
-            "note": "NON_MESH_OR_UNRESOLVED; coords=(%2553,%2554)"
+            "note": "NON_MESH_OR_UNRESOLVED; coords=(%1879,%1880)"
           },
           "uv_branch_status": "PASS_SCOPED",
           "branch_status": "PASS_SCOPED",
@@ -547,17 +493,17 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%2557",
+            "instruction=%1883",
             "t38",
             "comps=[0, 1, 2]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         },
         {
-          "sample_site_id": "car_livery|CarLightScenario|%3313|t8",
-          "instruction_id": "%3313",
+          "sample_site_id": "car_brakerotor|CarLightScenario|%2639|t8",
+          "instruction_id": "%2639",
           "texture_register": 8,
           "sampler_register": 0,
           "expected_comps": [
@@ -565,7 +511,7 @@
           ],
           "uv_expression": {
             "kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT",
-            "note": "NON_MESH_OR_UNRESOLVED; coords=(%3305,%3306)"
+            "note": "NON_MESH_OR_UNRESOLVED; coords=(%2631,%2632)"
           },
           "uv_branch_status": "PASS_SCOPED",
           "branch_status": "PASS_SCOPED",
@@ -575,17 +521,17 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%3313",
+            "instruction=%2639",
             "t8",
             "comps=[0]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         },
         {
-          "sample_site_id": "car_livery|CarLightScenario|%3544|t123",
-          "instruction_id": "%3544",
+          "sample_site_id": "car_brakerotor|CarLightScenario|%2870|t123",
+          "instruction_id": "%2870",
           "texture_register": 123,
           "sampler_register": 2,
           "expected_comps": [
@@ -603,17 +549,17 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%3544",
+            "instruction=%2870",
             "t123",
             "comps=[0, 1, 2, 3]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         },
         {
-          "sample_site_id": "car_livery|CarLightScenario|%3986|t7",
-          "instruction_id": "%3986",
+          "sample_site_id": "car_brakerotor|CarLightScenario|%3313|t7",
+          "instruction_id": "%3313",
           "texture_register": 7,
           "sampler_register": 0,
           "expected_comps": [
@@ -633,17 +579,17 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%3986",
+            "instruction=%3313",
             "t7",
             "comps=[0, 1, 2]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         },
         {
-          "sample_site_id": "car_livery|CarLightScenario|%4019|t1",
-          "instruction_id": "%4019",
+          "sample_site_id": "car_brakerotor|CarLightScenario|%3346|t1",
+          "instruction_id": "%3346",
           "texture_register": 1,
           "sampler_register": 5,
           "expected_comps": [
@@ -663,17 +609,17 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%4019",
+            "instruction=%3346",
             "t1",
             "comps=[0, 1, 2]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         },
         {
-          "sample_site_id": "car_livery|CarLightScenario|%4100|t1",
-          "instruction_id": "%4100",
+          "sample_site_id": "car_brakerotor|CarLightScenario|%3427|t1",
+          "instruction_id": "%3427",
           "texture_register": 1,
           "sampler_register": 5,
           "expected_comps": [
@@ -693,17 +639,17 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%4100",
+            "instruction=%3427",
             "t1",
             "comps=[0, 1, 2]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         },
         {
-          "sample_site_id": "car_livery|CarLightScenario|%4844|t4",
-          "instruction_id": "%4844",
+          "sample_site_id": "car_brakerotor|CarLightScenario|%4171|t4",
+          "instruction_id": "%4171",
           "texture_register": 4,
           "sampler_register": 5,
           "expected_comps": [
@@ -720,17 +666,17 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%4844",
+            "instruction=%4171",
             "t4",
             "comps=[0, 1, 2]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         },
         {
-          "sample_site_id": "car_livery|CarLightScenario|%5798|t118",
-          "instruction_id": "%5798",
+          "sample_site_id": "car_brakerotor|CarLightScenario|%5125|t118",
+          "instruction_id": "%5125",
           "texture_register": 118,
           "sampler_register": 1,
           "expected_comps": [
@@ -747,17 +693,17 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%5798",
+            "instruction=%5125",
             "t118",
             "comps=[0, 1, 2]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         },
         {
-          "sample_site_id": "car_livery|CarLightScenario|%5903|t124",
-          "instruction_id": "%5903",
+          "sample_site_id": "car_brakerotor|CarLightScenario|%5230|t124",
+          "instruction_id": "%5230",
           "texture_register": 124,
           "sampler_register": 2,
           "expected_comps": [
@@ -768,7 +714,7 @@
           ],
           "uv_expression": {
             "kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT",
-            "note": "NON_MESH_OR_UNRESOLVED; coords=(%5877,%5880)"
+            "note": "NON_MESH_OR_UNRESOLVED; coords=(%5204,%5207)"
           },
           "uv_branch_status": "PASS_SCOPED",
           "branch_status": "PASS_SCOPED",
@@ -778,44 +724,12 @@
           "blender_import": false,
           "blender_relevance": "MAIN_SURFACE_SHADING",
           "evidence": [
-            "instruction=%5903",
+            "instruction=%5230",
             "t124",
             "comps=[0, 1, 2, 3]",
-            "archive=car_liveryCarLightScenario.pcdxil.pso",
-            "pso_sha256=12125d3d6f4574f033567eb6b28137a744a2edf0e843d695fc21a4048f3f267a",
-            "pass_identity_key=f1617a600d251bc8|root|CarLightScenario|ps|12125d3d6f4574f0"
-          ]
-        }
-      ]
-    },
-    {
-      "scenario": "SimpleCarLightScenario",
-      "variant": "",
-      "archive_member": "car_liverySimpleCarLightScenario.pcdxil.pso",
-      "stage": "ps",
-      "blender_relevance": "VISIBILITY",
-      "reason": "Samples Alpha t16 omitted from CarLightScenario; feeds SV_Target.a / discard.",
-      "import_sample_sites": [
-        {
-          "texture_register": 16,
-          "sampler_register": null,
-          "expected_comps": [
-            0
-          ],
-          "uv_expression": "TEXCOORD0",
-          "expected_uv_expression": "TEXCOORD0",
-          "uv_branch_status": "PROVEN_UNIQUE",
-          "blender_relevance": "SURFACE_VISIBILITY",
-          "declared_txmp_name": "Alpha",
-          "declared_txmp_hash": "0x698CA64F",
-          "semantic_role": "alpha_mask",
-          "final_use": "SV_Target.a / discard",
-          "active_branch": "SimpleCarLightScenario visibility path",
-          "mati_provenance": "TXMP Alpha declared on shaderbin; MatI binds path when present",
-          "blender_import": true,
-          "evidence": [
-            "DXIL sample t16.r @ TEXCOORD0 feeds SV_Target alpha",
-            "CarLightScenario incompleteness reference example"
+            "archive=car_brakerotorCarLightScenario.pcdxil.pso",
+            "pso_sha256=9e7679e5f8daf03a950b23b69f0e24b141cf67fd10f63d3e0bbd404379a6182d",
+            "pass_identity_key=384692abfe3daace|root|CarLightScenario|ps|9e7679e5f8daf03a"
           ]
         }
       ]

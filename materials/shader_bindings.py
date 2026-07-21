@@ -1453,9 +1453,17 @@ def extract_bindings(
                             f"contract={site.identity.pso_sha256[:12]}… "
                             f"analyzed={secondary.pso_sha256[:12]}…"
                         )
+                role = str(site.semantic_role or "").lower()
+                # SV_Target.a proof is for additional visibility passes only.
+                # Primary CarLight Alpha/BaseColor samples feed shading, not
+                # necessarily SV_Target.a evidence on the same PSO.
                 require_alpha = (
-                    "alpha" in str(site.semantic_role or "").lower()
-                    or "SV_Target.a" in str(site.final_use or "")
+                    site.scenario != "CarLightScenario"
+                    and (
+                        role == "alpha"
+                        or role.endswith(".alpha")
+                        or "SV_Target.a" in str(site.final_use or "")
+                    )
                 )
                 _attach_contracted_evaluated_site(
                     textures=textures,
@@ -1467,7 +1475,7 @@ def extract_bindings(
                     require_sv_target_alpha=require_alpha,
                     evidence_note=str(pass_row.get("reason") or ""),
                 )
-            authoritative = "EVALUATED_SAMPLE_SITES"
+            authoritative = "FULL_SAMPLE_SITE_IR"
             bridge_used = False
         else:
             # Non-contracted: primary-pass TextureBindings only (limited capability).

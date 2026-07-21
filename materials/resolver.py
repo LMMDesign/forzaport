@@ -350,26 +350,110 @@ class MaterialCapabilityResolver:
             print(f"Forza material UV: {name}: {uv_choice[1].detail}", flush=True)
             observation_ev.append(uv_choice[1])
 
-        for h, treg in sorted(txmp.items(), key=lambda kv: int(kv[1])):
-            p = params.get(h)
-            if p is None or getattr(p, "type", None) != 6:
-                continue
-            path = getattr(p, "path", "") or ""
-            try:
-                param_name = require_name(h, context=f"{shader_name} TXMP t{treg}")
-            except MaterialNameError as exc:
-                errors.append(str(exc))
-                continue
+        auth_model = str(getattr(bindings, "authoritative_model", "") or "")
+        use_sample_sites = auth_model in (
+            "FULL_SAMPLE_SITE_IR",
+            "EVALUATED_SAMPLE_SITES",
+        ) and getattr(bindings, "evaluated_sites", None) is not None
 
-            # WeaveMask is activation-owned (not a Principled primary map).
-            if param_name == "WeaveMask":
+        if use_sample_sites:
+            from .sample_site_slots import slots_from_evaluated_sites
+
+            slot_maps, site_errors, site_ev = slots_from_evaluated_sites(
+                bindings=bindings,
+                params=params,
+                txmp=txmp,
+                spmp=spmp,
+                overrides=overrides,
+                shader_name=shader_name,
+                resolver=resolver,
+                slot_builder=_slot,
+                prefer_fn=_prefer,
+                path_exists=_path_exists,
+                capability_kind=_KIND,
+            )
+            errors.extend(site_errors)
+            observation_ev.extend(site_ev)
+            base_map = slot_maps["base_map"]
+            weave_mask = slot_maps["weave_mask"]
+            normal_map = slot_maps["normal_map"]
+            rmao_map = slot_maps["rmao_map"]
+            alpha_map = slot_maps["alpha_map"]
+        else:
+            # Legacy / unsupported path — register-keyed TextureBinding semantics.
+            for h, treg in sorted(txmp.items(), key=lambda kv: int(kv[1])):
+                p = params.get(h)
+                if p is None or getattr(p, "type", None) != 6:
+                    continue
+                path = getattr(p, "path", "") or ""
+                try:
+                    param_name = require_name(h, context=f"{shader_name} TXMP t{treg}")
+                except MaterialNameError as exc:
+                    errors.append(str(exc))
+                    continue
+
+                # WeaveMask is activation-owned (not a Principled primary map).
+                if param_name == "WeaveMask":
+                    if not path:
+                        errors.append(f"{param_name} t{treg}: empty TXMP path")
+                        continue
+                    if not _path_exists(path, resolver):
+                        errors.append(f"{param_name} t{treg}: texture missing: {path}")
+                        continue
+                    bind = bindings.textures.get(int(treg))
+                    uv = binding_uv(
+                        bind,
+                        params,
+                        txmp_name=param_name,
+                        shaderbin_sha256=shaderbin_sha or None,
+                    )
+                    if uv is None:
+                        errors.append(
+                            f"{param_name} t{treg}: no proven UV for weave composite"
+                        )
+                        continue
+                    weave_mask = _slot(
+                        role="weave_mask",
+                        h=h,
+                        name=param_name,
+                        path=path,
+                        bind=bind,
+                        params=params,
+                        spmp=spmp,
+                        uv=uv,
+                        channel="r",
+                        evidence=_ev(
+                            f"TXMP:0x{h & 0xFFFFFFFF:08X}:{param_name}",
+                            f"DXIL:t{treg}:TEXCOORD{uv}",
+                            "activation:weave_mask",
+                        ),
+                        resolver=resolver,
+                    )
+                    continue
+
+                try:
+                    sem = semantics_for_txmp_hash(
+                        h, context=f"{shader_name} TXMP t{treg}"
+                    )
+                except MaterialNameError as exc:
+                    errors.append(str(exc))
+                    continue
+
+                if not sem.supports(_KIND):
+                    continue
+
                 if not path:
                     errors.append(f"{param_name} t{treg}: empty TXMP path")
                     continue
                 if not _path_exists(path, resolver):
                     errors.append(f"{param_name} t{treg}: texture missing: {path}")
                     continue
+
                 bind = bindings.textures.get(int(treg))
+                if param_name == "Alpha":
+                    pending_alpha = (h, param_name, path, bind, int(treg))
+                    continue
+
                 uv = binding_uv(
                     bind,
                     params,
@@ -377,121 +461,72 @@ class MaterialCapabilityResolver:
                     shaderbin_sha256=shaderbin_sha or None,
                 )
                 if uv is None:
-                    errors.append(
-                        f"{param_name} t{treg}: no proven UV for weave composite"
+                    all_uv = (
+                        list(getattr(bind, "uv_semantics_all", None) or [])
+                        if bind
+                        else []
                     )
+                    if bind is None:
+                        errors.append(
+                            f"{param_name} t{treg}: not sampled in analyzed DXIL passes "
+                            f"({', '.join(getattr(bindings, 'passes_analyzed', None) or [PRIMARY_RASTER_PASS])})"
+                        )
+                    else:
+                        errors.append(
+                            f"{param_name} t{treg}: no proven UV "
+                            f"(DXIL candidates={all_uv or None}; "
+                            f"need unique TEXCOORD or UVChoice)"
+                        )
                     continue
-                weave_mask = _slot(
-                    role="weave_mask",
-                    h=h,
-                    name=param_name,
-                    path=path,
-                    bind=bind,
-                    params=params,
-                    spmp=spmp,
-                    uv=uv,
-                    channel="r",
-                    evidence=_ev(
-                        f"TXMP:0x{h & 0xFFFFFFFF:08X}:{param_name}",
-                        f"DXIL:t{treg}:TEXCOORD{uv}",
-                        "activation:weave_mask",
-                    ),
-                    resolver=resolver,
+
+                evidence = _ev(
+                    f"TXMP:0x{h & 0xFFFFFFFF:08X}:{param_name}",
+                    f"DXIL:t{treg}:TEXCOORD{uv}",
                 )
-                continue
-
-            try:
-                sem = semantics_for_txmp_hash(
-                    h, context=f"{shader_name} TXMP t{treg}"
-                )
-            except MaterialNameError as exc:
-                errors.append(str(exc))
-                continue
-
-            if not sem.supports(_KIND):
-                continue
-
-            if not path:
-                errors.append(f"{param_name} t{treg}: empty TXMP path")
-                continue
-            if not _path_exists(path, resolver):
-                errors.append(f"{param_name} t{treg}: texture missing: {path}")
-                continue
-
-            bind = bindings.textures.get(int(treg))
-            if param_name == "Alpha":
-                pending_alpha = (h, param_name, path, bind, int(treg))
-                continue
-
-            uv = binding_uv(
-                bind,
-                params,
-                txmp_name=param_name,
-                shaderbin_sha256=shaderbin_sha or None,
-            )
-            if uv is None:
-                all_uv = (
-                    list(getattr(bind, "uv_semantics_all", None) or []) if bind else []
-                )
-                if bind is None:
-                    errors.append(
-                        f"{param_name} t{treg}: not sampled in analyzed DXIL passes "
-                        f"({', '.join(getattr(bindings, 'passes_analyzed', None) or [PRIMARY_RASTER_PASS])})"
+                if param_name in ("BaseColorAlpha", "BaseColorAlpha_1"):
+                    candidate = _slot(
+                        role="base_color",
+                        h=h,
+                        name=param_name,
+                        path=path,
+                        bind=bind,
+                        params=params,
+                        spmp=spmp,
+                        uv=uv,
+                        evidence=evidence,
+                        resolver=resolver,
                     )
-                else:
-                    errors.append(
-                        f"{param_name} t{treg}: no proven UV "
-                        f"(DXIL candidates={all_uv or None}; "
-                        f"need unique TEXCOORD or UVChoice)"
+                    base_map = _prefer(base_map, candidate, is_override=h in overrides)
+                elif param_name in ("Normal", "WeaveNormal"):
+                    candidate = _slot(
+                        role="normal",
+                        h=h,
+                        name=param_name,
+                        path=path,
+                        bind=bind,
+                        params=params,
+                        spmp=spmp,
+                        uv=uv,
+                        evidence=evidence,
+                        resolver=resolver,
                     )
-                continue
-
-            evidence = _ev(
-                f"TXMP:0x{h & 0xFFFFFFFF:08X}:{param_name}",
-                f"DXIL:t{treg}:TEXCOORD{uv}",
-            )
-            if param_name in ("BaseColorAlpha", "BaseColorAlpha_1"):
-                candidate = _slot(
-                    role="base_color",
-                    h=h,
-                    name=param_name,
-                    path=path,
-                    bind=bind,
-                    params=params,
-                    spmp=spmp,
-                    uv=uv,
-                    evidence=evidence,
-                    resolver=resolver,
-                )
-                base_map = _prefer(base_map, candidate, is_override=h in overrides)
-            elif param_name in ("Normal", "WeaveNormal"):
-                candidate = _slot(
-                    role="normal",
-                    h=h,
-                    name=param_name,
-                    path=path,
-                    bind=bind,
-                    params=params,
-                    spmp=spmp,
-                    uv=uv,
-                    evidence=evidence,
-                    resolver=resolver,
-                )
-                normal_map = _prefer(normal_map, candidate, is_override=h in overrides)
-            elif param_name == "RoughMetalAO":
-                candidate = _slot(
-                    role="rmao",
-                    h=h,
-                    name=param_name,
-                    path=path,
-                    bind=bind,
-                    params=params,
-                    spmp=spmp,
-                    uv=uv,
-                    evidence=evidence + _ev("packing:R=roughness,G=metallic,B=AO"),
-                    resolver=resolver,
-                )
-                rmao_map = _prefer(rmao_map, candidate, is_override=h in overrides)
+                    normal_map = _prefer(
+                        normal_map, candidate, is_override=h in overrides
+                    )
+                elif param_name == "RoughMetalAO":
+                    candidate = _slot(
+                        role="rmao",
+                        h=h,
+                        name=param_name,
+                        path=path,
+                        bind=bind,
+                        params=params,
+                        spmp=spmp,
+                        uv=uv,
+                        evidence=evidence + _ev("packing:R=roughness,G=metallic,B=AO"),
+                        resolver=resolver,
+                    )
+                    rmao_map = _prefer(rmao_map, candidate, is_override=h in overrides)
 
         shaderbin_hash = shaderbin_sha
 
@@ -523,8 +558,10 @@ class MaterialCapabilityResolver:
         )
         if paint_clears_alpha:
             pending_alpha = None
+            if use_sample_sites:
+                alpha_map = None
 
-        if pending_alpha is not None:
+        if pending_alpha is not None and not use_sample_sites:
             h, param_name, path, bind, treg = pending_alpha
             uv = binding_uv(
                 bind,

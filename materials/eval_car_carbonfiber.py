@@ -119,13 +119,13 @@ def _path_exists(path: str, resolver) -> bool:
     return bool(resolved and os.path.isfile(resolved))
 
 
-def _address_for_bind(params: dict, spmp: dict, bind):
+def _address_for_reg(params: dict, spmp: dict, sampler_reg: int | None):
     import struct
 
-    if bind is None or bind.sampler_reg is None:
+    if sampler_reg is None:
         return None
     for h, reg in (spmp or {}).items():
-        if int(reg) != int(bind.sampler_reg):
+        if int(reg) != int(sampler_reg):
             continue
         p = params.get(h)
         raw = getattr(p, "samp", b"") if p is not None else b""
@@ -137,7 +137,39 @@ def _address_for_bind(params: dict, spmp: dict, bind):
     return None
 
 
+def _address_for_bind(params: dict, spmp: dict, bind):
+    """Legacy helper — prefer ``_address_for_reg`` / sample-site sampler."""
+    if bind is None:
+        return None
+    return _address_for_reg(params, spmp, getattr(bind, "sampler_reg", None))
+
+
+def _site_uv_and_sampler(evaluated, *, txmp_name: str, treg: int) -> tuple[int | None, int | None, str | None]:
+    """UV + sampler register from evaluated sample sites (not TextureBinding)."""
+    if evaluated is None:
+        return None, None, None
+    from .resolved_texture_resource import site_txmp_name
+
+    for site in evaluated.active_import_sites():
+        if int(site.texture_register) != int(treg):
+            continue
+        name = site_txmp_name(site)
+        if name and name != txmp_name:
+            continue
+        samp = site.identity.sampler_register
+        return site.resolved_texcoord, samp, site.sample_site_id
+    for site in evaluated.active_import_sites():
+        if site_txmp_name(site) == txmp_name:
+            return (
+                site.resolved_texcoord,
+                site.identity.sampler_register,
+                site.sample_site_id,
+            )
+    return None, None, None
+
+
 def _uv_index_for(bind, params: dict, txmp_name: str) -> int | None:
+    """TEST_ONLY / unsupported fallback — production uses ``_site_uv_and_sampler``."""
     if bind is None:
         return None
     uv = resolve_binding_uv(
@@ -345,14 +377,16 @@ def evaluate_car_carbonfiber(
             ),
         )
     wm_hash, wm_treg, wm_path = weave_mask
-    wm_bind = bindings.textures.get(int(wm_treg))
-    wm_uv = _uv_index_for(wm_bind, params, "WeaveMask")
+    wm_uv, wm_samp, wm_site_id = _site_uv_and_sampler(
+        bindings.evaluated_sites, txmp_name="WeaveMask", treg=wm_treg
+    )
     if wm_uv is None:
         return ForzaMaterialIR(
             shader=identity,
             evidence=tuple(evidence),
             rejection_reasons=(
-                f"car_carbonfiber: WeaveMask t{wm_treg} has no proven UV in DXIL",
+                f"car_carbonfiber: WeaveMask t{wm_treg} has no proven UV in "
+                "evaluated sample sites",
             ),
         )
     if wm_uv != 1:
@@ -381,10 +415,11 @@ def evaluate_car_carbonfiber(
         channels=("r",),
         color_space="Non-Color",
         resolver=resolver,
-        address=_address_for_bind(params, spmp, wm_bind),
+        address=_address_for_reg(params, spmp, wm_samp),
         evidence=_pd(
             f"TXMP:0x{wm_hash & 0xFFFFFFFF:08X}:WeaveMask",
             f"DXIL:t{wm_treg}:TEXCOORD1",
+            f"sample_site:{wm_site_id}",
         )
         + weave_uv_evidence,
     )
@@ -410,14 +445,16 @@ def evaluate_car_carbonfiber(
     normal = None
     if weave_normal is not None and weave_normal[2] and _path_exists(weave_normal[2], resolver):
         wn_hash, wn_treg, wn_path = weave_normal
-        wn_bind = bindings.textures.get(int(wn_treg))
-        wn_uv = _uv_index_for(wn_bind, params, "WeaveNormal")
+        wn_uv, wn_samp, wn_site_id = _site_uv_and_sampler(
+            bindings.evaluated_sites, txmp_name="WeaveNormal", treg=wn_treg
+        )
         if wn_uv is None:
             return ForzaMaterialIR(
                 shader=identity,
                 evidence=tuple(evidence),
                 rejection_reasons=(
-                    f"car_carbonfiber: WeaveNormal t{wn_treg} has no proven UV in DXIL",
+                    f"car_carbonfiber: WeaveNormal t{wn_treg} has no proven UV in "
+                    "evaluated sample sites",
                 ),
             )
         if wn_uv != 1:
@@ -438,10 +475,11 @@ def evaluate_car_carbonfiber(
             channels=("r", "g", "b"),
             color_space="Non-Color",
             resolver=resolver,
-            address=_address_for_bind(params, spmp, wn_bind),
+            address=_address_for_reg(params, spmp, wn_samp),
             evidence=_pd(
                 f"TXMP:0x{wn_hash & 0xFFFFFFFF:08X}:WeaveNormal",
                 f"DXIL:t{wn_treg}:TEXCOORD1 (SAME weave UV as WeaveMask)",
+                f"sample_site:{wn_site_id}",
             ),
         )
         normal = NormalDecode(
@@ -473,14 +511,16 @@ def evaluate_car_carbonfiber(
             rejection_reasons=("car_carbonfiber: RoughMetalAO texture missing",),
         )
     rmao_hash, rmao_treg, rmao_path = rmao
-    rmao_bind = bindings.textures.get(int(rmao_treg))
-    rmao_uv = _uv_index_for(rmao_bind, params, "RoughMetalAO")
+    rmao_uv, rmao_samp, rmao_site_id = _site_uv_and_sampler(
+        bindings.evaluated_sites, txmp_name="RoughMetalAO", treg=rmao_treg
+    )
     if rmao_uv is None:
         return ForzaMaterialIR(
             shader=identity,
             evidence=tuple(evidence),
             rejection_reasons=(
-                f"car_carbonfiber: RoughMetalAO t{rmao_treg} has no proven UV in DXIL",
+                f"car_carbonfiber: RoughMetalAO t{rmao_treg} has no proven UV in "
+                "evaluated sample sites",
             ),
         )
     if rmao_uv != 0:
@@ -499,10 +539,11 @@ def evaluate_car_carbonfiber(
         channels=("r", "g", "b"),
         color_space="Non-Color",
         resolver=resolver,
-        address=_address_for_bind(params, spmp, rmao_bind),
+        address=_address_for_reg(params, spmp, rmao_samp),
         evidence=_pd(
             f"TXMP:0x{rmao_hash & 0xFFFFFFFF:08X}:RoughMetalAO",
             f"DXIL:t{rmao_treg}:TEXCOORD0",
+            f"sample_site:{rmao_site_id}",
             "packing:R=roughness,G=metallic,B=AO",
         ),
     )

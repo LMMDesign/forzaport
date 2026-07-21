@@ -1,6 +1,8 @@
 {
+  "schema_version": 1,
   "shader_name": "car_reflector",
   "shaderbin_sha256": "47f92e42f2d1991ae07a36364216402e53801bc6be9efa765ee49fe64a51d0e9",
+  "status": "APPROVED_PARTIAL",
   "schema_notes": "Declared TXMP Alpha@t16; absent from CarLightScenario samples.",
   "relevant_passes": [
     {
@@ -8,9 +10,809 @@
       "variant": "",
       "archive_member": "car_reflectorCarLightScenario.pcdxil.pso",
       "stage": "ps",
+      "pso_sha256": "622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
       "blender_relevance": "MAIN_SURFACE_SHADING",
-      "reason": "Primary raster lighting.",
-      "import_sample_sites": []
+      "reason": "Primary CarLightScenario sample sites from DXIL inventory.",
+      "relevance_evidence": [
+        "DXIL CarLightScenario PSO sample instructions",
+        "family=car_reflector sha=47f92e42f2d1991a\u2026"
+      ],
+      "import_sample_sites": [
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%170|t26",
+          "instruction_id": "%170",
+          "texture_register": 26,
+          "sampler_register": 13,
+          "expected_comps": [
+            0,
+            1,
+            2
+          ],
+          "uv_expression": {
+            "kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT",
+            "note": "NON_MESH_OR_UNRESOLVED; coords=(%86,%85)"
+          },
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": "RoughMetalAO",
+          "semantic_role": "RoughMetalAO",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%170",
+            "t26",
+            "comps=[0, 1, 2]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%518|t20",
+          "instruction_id": "%518",
+          "texture_register": 20,
+          "sampler_register": 1,
+          "expected_comps": [
+            0,
+            1
+          ],
+          "uv_expression": "TEXCOORD1",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": "Normal",
+          "semantic_role": "Normal",
+          "final_use": "surface_shading",
+          "blender_import": true,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%518",
+            "t20",
+            "comps=[0, 1]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%575|t17",
+          "instruction_id": "%575",
+          "texture_register": 17,
+          "sampler_register": 1,
+          "expected_comps": [
+            0
+          ],
+          "uv_expression": "TEXCOORD1",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": "BaseColorAlpha",
+          "semantic_role": "BaseColorAlpha",
+          "final_use": "surface_shading",
+          "blender_import": true,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%575",
+            "t17",
+            "comps=[0]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%622|t25",
+          "instruction_id": "%622",
+          "texture_register": 25,
+          "sampler_register": 1,
+          "expected_comps": [
+            0,
+            1
+          ],
+          "uv_expression": "TEXCOORD1",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": "RoughMetalAO",
+          "semantic_role": "RoughMetalAO",
+          "final_use": "surface_shading",
+          "blender_import": true,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%622",
+            "t25",
+            "comps=[0, 1]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%685|t22",
+          "instruction_id": "%685",
+          "texture_register": 22,
+          "sampler_register": 1,
+          "expected_comps": [
+            0,
+            1,
+            3
+          ],
+          "uv_expression": "TEXCOORD1",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%685",
+            "t22",
+            "comps=[0, 1, 3]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%871|t33",
+          "instruction_id": "%871",
+          "texture_register": 33,
+          "sampler_register": 1,
+          "expected_comps": [
+            0,
+            1
+          ],
+          "uv_expression": "TEXCOORD1",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%871",
+            "t33",
+            "comps=[0, 1]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%875|t19",
+          "instruction_id": "%875",
+          "texture_register": 19,
+          "sampler_register": 1,
+          "expected_comps": [
+            0,
+            1,
+            2
+          ],
+          "uv_expression": "TEXCOORD1",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": "WeaveNormal",
+          "semantic_role": "WeaveNormal",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%875",
+            "t19",
+            "comps=[0, 1, 2]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%883|t18",
+          "instruction_id": "%883",
+          "texture_register": 18,
+          "sampler_register": 1,
+          "expected_comps": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "uv_expression": "TEXCOORD3",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": "WeaveMask",
+          "semantic_role": "WeaveMask",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%883",
+            "t18",
+            "comps=[0, 1, 2, 3]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%891|t30",
+          "instruction_id": "%891",
+          "texture_register": 30,
+          "sampler_register": 1,
+          "expected_comps": [
+            0
+          ],
+          "uv_expression": "TEXCOORD1",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%891",
+            "t30",
+            "comps=[0]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%905|t29",
+          "instruction_id": "%905",
+          "texture_register": 29,
+          "sampler_register": 1,
+          "expected_comps": [
+            0
+          ],
+          "uv_expression": "TEXCOORD1",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%905",
+            "t29",
+            "comps=[0]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%908|t28",
+          "instruction_id": "%908",
+          "texture_register": 28,
+          "sampler_register": 1,
+          "expected_comps": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "uv_expression": "TEXCOORD1",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%908",
+            "t28",
+            "comps=[0, 1, 2, 3]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%914|t27",
+          "instruction_id": "%914",
+          "texture_register": 27,
+          "sampler_register": 1,
+          "expected_comps": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "uv_expression": "TEXCOORD1",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%914",
+            "t27",
+            "comps=[0, 1, 2, 3]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%920|t24",
+          "instruction_id": "%920",
+          "texture_register": 24,
+          "sampler_register": 1,
+          "expected_comps": [
+            0,
+            1
+          ],
+          "uv_expression": "TEXCOORD1",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%920",
+            "t24",
+            "comps=[0, 1]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%1735|t23",
+          "instruction_id": "%1735",
+          "texture_register": 23,
+          "sampler_register": 1,
+          "expected_comps": [
+            0,
+            1
+          ],
+          "uv_expression": "TEXCOORD1",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%1735",
+            "t23",
+            "comps=[0, 1]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%2103|t21",
+          "instruction_id": "%2103",
+          "texture_register": 21,
+          "sampler_register": 1,
+          "expected_comps": [
+            0,
+            1,
+            3
+          ],
+          "uv_expression": "TEXCOORD4",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%2103",
+            "t21",
+            "comps=[0, 1, 3]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%2164|t32",
+          "instruction_id": "%2164",
+          "texture_register": 32,
+          "sampler_register": 1,
+          "expected_comps": [
+            0
+          ],
+          "uv_expression": "TEXCOORD4",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%2164",
+            "t32",
+            "comps=[0]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%2284|t31",
+          "instruction_id": "%2284",
+          "texture_register": 31,
+          "sampler_register": 1,
+          "expected_comps": [
+            0
+          ],
+          "uv_expression": "TEXCOORD4",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%2284",
+            "t31",
+            "comps=[0]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%2526|t117",
+          "instruction_id": "%2526",
+          "texture_register": 117,
+          "sampler_register": 1,
+          "expected_comps": [
+            0
+          ],
+          "uv_expression": "TEXCOORD4",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%2526",
+            "t117",
+            "comps=[0]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%2549|t115",
+          "instruction_id": "%2549",
+          "texture_register": 115,
+          "sampler_register": 1,
+          "expected_comps": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "uv_expression": "TEXCOORD4",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%2549",
+            "t115",
+            "comps=[0, 1, 2, 3]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%2592|t38",
+          "instruction_id": "%2592",
+          "texture_register": 38,
+          "sampler_register": 11,
+          "expected_comps": [
+            0,
+            1,
+            2
+          ],
+          "uv_expression": {
+            "kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT",
+            "note": "NON_MESH_OR_UNRESOLVED; coords=(%2588,%2589)"
+          },
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%2592",
+            "t38",
+            "comps=[0, 1, 2]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%3348|t8",
+          "instruction_id": "%3348",
+          "texture_register": 8,
+          "sampler_register": 0,
+          "expected_comps": [
+            0
+          ],
+          "uv_expression": {
+            "kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT",
+            "note": "NON_MESH_OR_UNRESOLVED; coords=(%3340,%3341)"
+          },
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%3348",
+            "t8",
+            "comps=[0]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%3572|t123",
+          "instruction_id": "%3572",
+          "texture_register": 123,
+          "sampler_register": 2,
+          "expected_comps": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "uv_expression": "TEXCOORD4",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%3572",
+            "t123",
+            "comps=[0, 1, 2, 3]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%4082|t7",
+          "instruction_id": "%4082",
+          "texture_register": 7,
+          "sampler_register": 0,
+          "expected_comps": [
+            0,
+            1,
+            2
+          ],
+          "uv_expression": {
+            "kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT",
+            "note": "multi-TEXCOORD without UVChoice SHA proof"
+          },
+          "uv_branch_status": "EXECUTABLE_PREDICATE",
+          "branch_status": "EXECUTABLE_PREDICATE",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%4082",
+            "t7",
+            "comps=[0, 1, 2]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%4115|t1",
+          "instruction_id": "%4115",
+          "texture_register": 1,
+          "sampler_register": 5,
+          "expected_comps": [
+            0,
+            1,
+            2
+          ],
+          "uv_expression": {
+            "kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT",
+            "note": "multi-TEXCOORD without UVChoice SHA proof"
+          },
+          "uv_branch_status": "EXECUTABLE_PREDICATE",
+          "branch_status": "EXECUTABLE_PREDICATE",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%4115",
+            "t1",
+            "comps=[0, 1, 2]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%4195|t1",
+          "instruction_id": "%4195",
+          "texture_register": 1,
+          "sampler_register": 5,
+          "expected_comps": [
+            0,
+            1,
+            2
+          ],
+          "uv_expression": {
+            "kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT",
+            "note": "multi-TEXCOORD without UVChoice SHA proof"
+          },
+          "uv_branch_status": "EXECUTABLE_PREDICATE",
+          "branch_status": "EXECUTABLE_PREDICATE",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%4195",
+            "t1",
+            "comps=[0, 1, 2]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%4233|t1",
+          "instruction_id": "%4233",
+          "texture_register": 1,
+          "sampler_register": 5,
+          "expected_comps": [
+            0,
+            1,
+            2
+          ],
+          "uv_expression": {
+            "kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT",
+            "note": "multi-TEXCOORD without UVChoice SHA proof"
+          },
+          "uv_branch_status": "EXECUTABLE_PREDICATE",
+          "branch_status": "EXECUTABLE_PREDICATE",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%4233",
+            "t1",
+            "comps=[0, 1, 2]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%5045|t4",
+          "instruction_id": "%5045",
+          "texture_register": 4,
+          "sampler_register": 5,
+          "expected_comps": [
+            0,
+            1,
+            2
+          ],
+          "uv_expression": "TEXCOORD4",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%5045",
+            "t4",
+            "comps=[0, 1, 2]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%6002|t118",
+          "instruction_id": "%6002",
+          "texture_register": 118,
+          "sampler_register": 1,
+          "expected_comps": [
+            0,
+            1,
+            2
+          ],
+          "uv_expression": "TEXCOORD4",
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%6002",
+            "t118",
+            "comps=[0, 1, 2]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        },
+        {
+          "sample_site_id": "car_reflector|CarLightScenario|%6107|t124",
+          "instruction_id": "%6107",
+          "texture_register": 124,
+          "sampler_register": 2,
+          "expected_comps": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "uv_expression": {
+            "kind": "UNRESOLVED_SAMPLE_SITE_CONTRACT",
+            "note": "NON_MESH_OR_UNRESOLVED; coords=(%6081,%6084)"
+          },
+          "uv_branch_status": "PASS_SCOPED",
+          "branch_status": "PASS_SCOPED",
+          "declared_txmp_name": null,
+          "semantic_role": "unresolved",
+          "final_use": "surface_shading",
+          "blender_import": false,
+          "blender_relevance": "MAIN_SURFACE_SHADING",
+          "evidence": [
+            "instruction=%6107",
+            "t124",
+            "comps=[0, 1, 2, 3]",
+            "archive=car_reflectorCarLightScenario.pcdxil.pso",
+            "pso_sha256=622c3bc8b335cbf29fa319b9c1a986095b7885351f4529611f47cbe63b67679d",
+            "pass_identity_key=47f92e42f2d1991a|root|CarLightScenario|ps|622c3bc8b335cbf2"
+          ]
+        }
+      ]
     },
     {
       "scenario": "SimpleCarLightScenario",
@@ -23,7 +825,9 @@
         {
           "texture_register": 16,
           "sampler_register": 1,
-          "expected_comps": [0],
+          "expected_comps": [
+            0
+          ],
           "uv_expression": "TEXCOORD0",
           "expected_uv_expression": "TEXCOORD0",
           "uv_branch_status": "PROVEN_UNIQUE",
@@ -37,7 +841,7 @@
           "blender_import": true,
           "evidence": [
             "DXIL: SimpleCarLightScenario sample# t16.r coords=TEXCOORD0.xy feeds alpha/discard",
-            "Also present on ShadowDepth* (SHADOW_VISIBILITY) — not imported as surface maps"
+            "Also present on ShadowDepth* (SHADOW_VISIBILITY) \u2014 not imported as surface maps"
           ]
         }
       ]

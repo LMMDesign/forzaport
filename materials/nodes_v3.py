@@ -525,6 +525,16 @@ def _build_resolved_material(resolved: ResolvedMaterial, resolver, image_cache):
 _IR_CONTRACT_SHADERS: dict[str, str] = {
     "car_standard": "eval_car_standard",
     "car_carbonfiber": "eval_car_carbonfiber",
+    "car_label": "eval_clean_surface_ir",
+    "car_standard_emissive": "eval_clean_surface_ir",
+    "car_standard_fabric": "eval_clean_surface_ir",
+    "car_automotive_paint": "eval_clean_surface_ir",
+    "car_standard_coated": "eval_clean_surface_ir",
+    "car_glass_detailed": "eval_clean_surface_ir",
+    "car_reflector": "eval_clean_surface_ir",
+    "car_brakerotor": "eval_clean_surface_ir",
+    "car_livery_transmissive": "eval_clean_surface_ir",
+    "car_livery": "eval_clean_surface_ir",
 }
 
 
@@ -608,9 +618,9 @@ def build_material(
 ):
     """Build Blender material.
 
-    ``car_standard`` and ``car_carbonfiber`` (exact contract identity) compile
-    from ForzaMaterialIR only. Other families keep the capability → nodes path
-    (compatibility fallback); those two exact SHAs must never fall through it.
+    All 12 production-supported exact SHAs compile from ForzaMaterialIR via
+    sample-site evaluation. Other / unknown families keep the capability →
+    nodes path and fail closed when unsupported.
     """
     resolved = ensure_resolved_material(material)
     module_name = _IR_CONTRACT_SHADERS.get(resolved.shader_name)
