@@ -166,8 +166,12 @@ def parse_light_scenario_blob(blob) -> LightScenarioBlob | None:
     FH6 extensions confirmed on real ``*.shaderbin`` LSCE v1.10:
       - AnimCount==0 still emits ``u32 unk`` + one VS path + platform hashes + stage + GPS,
         without AnimScenarioFlags and without the instanced VS block.
-      - Stub rows (DXR hit-groups and some F++ variants): Name [+ hit-group] + version + u32,
-        with no VS/GPS payload.
+      - Path-pair count is a small integer (1|2), not FTS bool; extras use flag+unk+VS+GPS.
+      - DXR compact rows: Name + version + ``u8 0`` + VS/GPS (no anim/unk fields).
+      - Hit-group secondary name widens path-pair to ``u32`` before anim count.
+      - Name-only stubs: Name immediately followed by the next scenario name.
+      - Trailing scenarios may follow the declared count (F++ rows on paint).
+      - Version+trail stubs: Name [+ hit-group] + version + u32, no VS/GPS payload.
     """
     if blob is None:
         return None
@@ -176,59 +180,58 @@ def parse_light_scenario_blob(blob) -> LightScenarioBlob | None:
     ver = blob.version or Version()
     stream = blob.stream
     stream.seek(0)
+    try:
+        total = stream._stream.getbuffer().nbytes
+    except Exception:
+        total = None
+
     is_inline = False
     if ver.is_at_least(1, 1):
         is_inline = bool(stream.read_u8())
     count = stream.read_u8() or 0
     scenarios: list[LightScenario] = []
-    for _ in range(count):
+
+    def _at_eof() -> bool:
+        if total is None:
+            return False
+        return stream.tell() >= total
+
+    def _read_vs_plat() -> VertexShaderEntry:
+        vs = VertexShaderEntry()
+        vs.path = stream.read_7bit_string() or ""
+        if ver.is_at_least(1, 6):
+            vs.vs_platform_hashes = _read_platform_hashes(stream)
+        elif ver.is_at_least(1, 5):
+            vs.vs_hash_dummy = bytes(stream.read(32))
+            vs.vs_hash = bytes(stream.read(32))
+        return vs
+
+    def _read_one_scenario() -> LightScenario:
         ls = LightScenario()
         ls.name = stream.read_7bit_string() or ""
+
+        # Name-only stub: next field is another scenario name (no version/payload).
+        if _peek_scenario_name(stream) and not _peek_hit_group_name(stream):
+            ls.is_dxr_stub = True
+            ls.anim_count = 0
+            return ls
+
         if _peek_hit_group_name(stream):
             ls.secondary_name = stream.read_7bit_string() or ""
         ls.version = stream.read_u32() or 0
 
-        # Stub detection: after version, only a trailing u32 before the next scenario name.
+        # Version+trail stub: trailing u32 then next scenario / EOF.
         pos_after_version = stream.tell()
         trail = stream.read(4)
         if trail and len(trail) == 4:
-            at_eof = False
-            try:
-                at_eof = stream.tell() >= stream._stream.getbuffer().nbytes
-            except Exception:
-                at_eof = False
-            if (at_eof or _peek_scenario_name(stream)) and not _peek_starts_with_game_path(
+            if (_at_eof() or _peek_scenario_name(stream)) and not _peek_starts_with_game_path(
                 stream
             ):
                 ls.is_dxr_stub = True
                 ls.fh6_anim0_unk = struct.unpack("<I", trail)[0]
                 ls.anim_count = 0
-                scenarios.append(ls)
-                continue
+                return ls
         stream.seek(pos_after_version)
-
-        if ver.is_at_least(1, 4):
-            # FTS: bool HasInstancedData. FH6 stores a small integer: 1 = one
-            # VS/GPS pair, 2 = primary + extra pair (often DXR / alternate path).
-            ls.has_instanced_data = bool(stream.read_u8())
-            stream.seek(stream.tell() - 1)
-            path_pair_count = stream.read_u8() or 1
-        else:
-            path_pair_count = 1
-        anim_count = 1
-        if ver.is_at_least(1, 2):
-            anim_count = stream.read_u32() or 0
-        ls.anim_count = anim_count
-
-        def _read_vs_plat() -> VertexShaderEntry:
-            vs = VertexShaderEntry()
-            vs.path = stream.read_7bit_string() or ""
-            if ver.is_at_least(1, 6):
-                vs.vs_platform_hashes = _read_platform_hashes(stream)
-            elif ver.is_at_least(1, 5):
-                vs.vs_hash_dummy = bytes(stream.read(32))
-                vs.vs_hash = bytes(stream.read(32))
-            return vs
 
         def _read_stage_gps() -> None:
             ls.shader_stage_bits = 0x11
@@ -238,6 +241,34 @@ def parse_light_scenario_blob(blob) -> LightScenarioBlob | None:
                     ls.shader_stage_bits = struct.unpack("<i", raw_bits)[0]
             ls.geometry_pixel_shader = stream.read_7bit_string() or ""
 
+        # DXR compact: u8 0 immediately followed by a Game: VS path.
+        if ver.is_at_least(1, 4):
+            pos_pair = stream.tell()
+            pair0 = stream.read_u8()
+            if pair0 == 0 and _peek_starts_with_game_path(stream):
+                ls.has_instanced_data = False
+                ls.anim_count = 0
+                ls.vertex_shaders.append(_read_vs_plat())
+                _read_stage_gps()
+                return ls
+            stream.seek(pos_pair)
+
+        path_pair_count = 1
+        if ver.is_at_least(1, 4):
+            # FTS: bool HasInstancedData. FH6: small integer path-pair count.
+            # When a DXR hit-group secondary name is present, the count is u32-aligned.
+            if ls.secondary_name:
+                path_pair_count = int(stream.read_u32() or 0)
+            else:
+                path_pair_count = int(stream.read_u8() or 0)
+            if path_pair_count <= 0:
+                path_pair_count = 1
+            ls.has_instanced_data = path_pair_count >= 2
+        anim_count = 1
+        if ver.is_at_least(1, 2):
+            anim_count = stream.read_u32() or 0
+        ls.anim_count = anim_count
+
         if anim_count == 0 and ver.is_at_least(1, 6):
             unk_raw = stream.read(4)
             if unk_raw and len(unk_raw) == 4:
@@ -245,12 +276,8 @@ def parse_light_scenario_blob(blob) -> LightScenarioBlob | None:
             ls.vertex_shaders.append(_read_vs_plat())
             _read_stage_gps()
             primary_gps = ls.geometry_pixel_shader
-            primary_stage = ls.shader_stage_bits
-            # Extra path pairs when the FH6 count byte is 2+ (FTS bool was 0/1 only).
-            # Not every scenario with count==2 actually emits extras (e.g. ray-tracing
-            # rows may jump straight to the next scenario / DXR stub).
-            for extra_i in range(max(0, int(path_pair_count) - 1)):
-                # Ray-tracing stage bit patterns often omit the extra pair payload.
+            primary_stage = int(ls.shader_stage_bits or 0)
+            for _extra_i in range(max(0, int(path_pair_count) - 1)):
                 if (primary_stage & 0x20) != 0:
                     break
                 if _peek_scenario_name(stream) or _peek_hit_group_name(stream):
@@ -279,6 +306,7 @@ def parse_light_scenario_blob(blob) -> LightScenarioBlob | None:
                 elif ver.is_at_least(1, 5):
                     vs.vs_hash_dummy = bytes(stream.read(32))
                     vs.vs_hash = bytes(stream.read(32))
+                # Instanced VS only when path-pair count is 2+ (not FTS bool(byte)).
                 if ls.has_instanced_data:
                     vs.instanced_path = stream.read_7bit_string() or ""
                     if ver.is_at_least(1, 6):
@@ -291,8 +319,15 @@ def parse_light_scenario_blob(blob) -> LightScenarioBlob | None:
                             stream.read_u8()
                 ls.vertex_shaders.append(vs)
             _read_stage_gps()
+        return ls
 
-        scenarios.append(ls)
+    for _ in range(count):
+        scenarios.append(_read_one_scenario())
+
+    # FH6: additional scenarios may trail the declared count (e.g. F++ on paint).
+    while not _at_eof() and _peek_scenario_name(stream):
+        scenarios.append(_read_one_scenario())
+
     return LightScenarioBlob(version=ver, is_inline=is_inline, scenarios=scenarios)
 
 
