@@ -102,9 +102,16 @@ class TextureSampleExpression:
     color_space: str
     sampler: SamplerState
     evidence: tuple[ProvenanceDiagnostic, ...] = ()
-    # Exact sample-site identity key when known — do not collapse same-register sites.
+    # Exact sample-site identity — do not collapse same-register sites.
     sample_site_id: str | None = None
     sample_site_key: str | None = None
+    shaderbin_sha256: str | None = None
+    archive_member: str | None = None
+    pso_sha256: str | None = None
+    pass_name: str | None = None
+    variant: str | None = None
+    texture_register: int | None = None
+    sampler_register: int | None = None
 
 
 # --- Material expression DAG ------------------------------------------------

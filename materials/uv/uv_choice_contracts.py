@@ -19,6 +19,11 @@ CAR_STANDARD_SHADERBIN_SHA256 = (
 CAR_STANDARD_EMISSIVE_SHADERBIN_SHA256 = (
     "8d4ef07a59378e6862a1e9318b8b247100e7fc5e05954a8fdbe6ae6ea2a57178"
 )
+# Independent DXIL proof on car_standard_fabric CarLightScenario
+# (CB row 22.0 UVChoice_OnCh1_OffCh2; same polarity; separate SHA entry).
+CAR_STANDARD_FABRIC_SHADERBIN_SHA256 = (
+    "af463726a228752c328abd847868a90bf69110463594a69851ebee1ce9034523"
+)
 UV_CHOICE_ON_CH1_OFF_CH2 = 0x402B8ED0
 UV_CHOICE_TRUE_TEXCOORD = 0
 UV_CHOICE_FALSE_TEXCOORD = 1
@@ -69,6 +74,27 @@ UV_CHOICE_BY_SHA: dict[str, UvChoiceContract] = {
             "Independent DXIL on car_standard_emissive SimpleCarLightScenario: "
             "c13.0 UVChoice (CBMP 0x402B8ED0) icmp eq 0 -> phi TEXCOORD1 "
             "(false) vs TEXCOORD0 (true); feeds Alpha t16 sample coords %526/%527."
+        ),
+    ),
+    CAR_STANDARD_FABRIC_SHADERBIN_SHA256: UvChoiceContract(
+        shaderbin_sha256=CAR_STANDARD_FABRIC_SHADERBIN_SHA256,
+        param_hash=UV_CHOICE_ON_CH1_OFF_CH2,
+        param_name="UVChoice_OnCh1_OffCh2",
+        true_texcoord=UV_CHOICE_TRUE_TEXCOORD,
+        false_texcoord=UV_CHOICE_FALSE_TEXCOORD,
+        applies_to_txmp=(
+            "BaseColorAlpha",
+            "Alpha",
+            "Normal",
+            "RoughMetalAO",
+        ),
+        evidence_pass="CarLightScenario",
+        evidence=(
+            "Independent DXIL on car_standard_fabric CarLightScenario: "
+            "CB row 22.0 (declared UVChoice_OnCh1_OffCh2) icmp eq 0 -> "
+            "phi loadInput sigId 1 (%99/%100, false) vs sigId 0 (%101/%102, true); "
+            "feeds BaseColorAlpha/Normal/RoughMetalAO/Alpha multi-UV samples. "
+            "Exact SHA af463726… only — not reused from car_standard."
         ),
     ),
 }

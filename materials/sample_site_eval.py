@@ -43,6 +43,9 @@ class EvaluatedSampleSite:
     relevance_evidence_status: str  # PROVISIONAL_NAME_CLASSIFICATION | CONTRACT_EVIDENCE | …
     blender_import: bool
     status: str  # ACTIVE | INACTIVE | REJECTED | UNRESOLVED
+    branch_status: str = "UNCONDITIONAL"
+    # UNCONDITIONAL | EXECUTABLE_PREDICATE | COMPILE_TIME_VARIANT | PASS_ONLY |
+    # INACTIVE_OR_OPTIMISED | UNRESOLVED_PREDICATE | NOT_RELEVANT_TO_BLENDER
     branch_predicates: tuple[BranchPredicate, ...] = ()
     evidence: tuple[str, ...] = ()
     declared_txmp: str | None = None
@@ -242,12 +245,21 @@ def evaluate_material_sample_sites(
                 evidence: list[str] = list(s.get("evidence") or [])
                 uv_eval: UvEvalResult | None = None
                 rejection = None
+                branch_status = "UNCONDITIONAL"
 
                 # Branch predicates
+                if branches:
+                    branch_status = "EXECUTABLE_PREDICATE"
+                elif pass_row.get("requires_variant"):
+                    branch_status = "COMPILE_TIME_VARIANT"
+                elif not blender_import:
+                    branch_status = "NOT_RELEVANT_TO_BLENDER"
+
                 for bp in branches:
                     ok, ev = _eval_branch(bp, params)
                     evidence.append(f"branch:{ev}")
                     if ok is None:
+                        branch_status = "UNRESOLVED_PREDICATE"
                         if bp.missing_policy == "reject":
                             status = "REJECTED"
                             rejection = f"missing branch predicate: {ev}"
@@ -257,6 +269,7 @@ def evaluate_material_sample_sites(
                         break
                     if not ok:
                         status = "INACTIVE"
+                        branch_status = "INACTIVE_OR_OPTIMISED"
                         evidence.append("branch_false→inactive")
                         break
 
@@ -312,6 +325,16 @@ def evaluate_material_sample_sites(
                         f"{identity.as_key()}: {rejection}"
                     )
 
+                if (
+                    blender_import
+                    and status == "ACTIVE"
+                    and branch_status == "UNRESOLVED_PREDICATE"
+                ):
+                    status = "REJECTED"
+                    out.rejection_reasons.append(
+                        f"{identity.as_key()}: active site with UNRESOLVED_PREDICATE"
+                    )
+
                 out.sites.append(
                     EvaluatedSampleSite(
                         identity=identity,
@@ -329,6 +352,7 @@ def evaluate_material_sample_sites(
                         relevance_evidence_status=evidence_status,
                         blender_import=blender_import,
                         status=status,
+                        branch_status=branch_status,
                         branch_predicates=tuple(branches),
                         evidence=tuple(evidence),
                         declared_txmp=s.get("declared_txmp_name"),

@@ -103,8 +103,30 @@ class ShaderBindings:
     passes_analyzed: list[str] = field(default_factory=list)
     # Authoritative per-site records (not keyed by register alone).
     sample_sites: list[dict] = field(default_factory=list)
+    # Site-keyed TextureBinding derived from evaluation (not register merges).
+    site_bindings: dict[str, TextureBinding] = field(default_factory=dict)
+    evaluated_sites: object | None = None  # EvaluatedMaterialSampleSites | None
+    authoritative_model: str = "PRIMARY_PASS_TEXTURE_BINDINGS"
+    # True only when legacy PassMergeSpec / _merge_pass_sites ran (must be 0 for contracted).
     compatibility_bridge_used: bool = False
     rejection_reasons: list[str] = field(default_factory=list)
+
+    def legacy_textures_view(
+        self,
+        *,
+        material_instance_key: str | None = None,
+        entry_point: str = "ShaderBindings.legacy_textures_view",
+    ) -> dict[int, TextureBinding]:
+        """LEGACY_COMPATIBILITY_VIEW — forbidden for contracted SHAs."""
+        from .legacy_binding_bridge import assert_legacy_bridge_allowed
+
+        sha = (self.source_hashes or {}).get("shaderbin_sha256")
+        assert_legacy_bridge_allowed(
+            shaderbin_sha256=sha,
+            entry_point=entry_point,
+            material_instance_key=material_instance_key,
+        )
+        return self.textures
 
 
 @dataclass
@@ -1145,6 +1167,121 @@ def _merge_pass_sites(
         textures[treg] = bind
 
 
+def _attach_contracted_evaluated_site(
+    *,
+    textures: dict[int, TextureBinding],
+    sample_sites: list[dict],
+    site_bindings: dict[str, TextureBinding],
+    primary: StaticShaderPassAnalysis,
+    secondary: StaticShaderPassAnalysis,
+    site,
+    require_sv_target_alpha: bool,
+    evidence_note: str,
+) -> None:
+    """Attach one evaluated ACTIVE blender_import site without PassMergeSpec.
+
+    Same-register secondary sites are preserved in ``sample_sites`` /
+    ``site_bindings``; primary TextureBinding is not discarded.
+    """
+    treg = int(site.texture_register)
+    src = secondary.textures.get(treg)
+    if src is None:
+        raise ShaderBindingError(
+            f"evaluated site {site.sample_site_id} has no t{treg} in "
+            f"{secondary.pass_name} (sha={primary.shaderbin_sha256[:12]}…)"
+        )
+    if site.sampled_components:
+        if tuple(src.comps or []) != tuple(site.sampled_components):
+            raise ShaderBindingError(
+                f"site {site.sample_site_id} comps drift: "
+                f"expected {list(site.sampled_components)}, got {src.comps}"
+            )
+    bind = _clone_textures({treg: src})[treg]
+    if site.resolved_texcoord is not None:
+        bind.uv_semantic = int(site.resolved_texcoord)
+    elif len(bind.uv_semantics_all or []) == 1:
+        bind.uv_semantic = int(bind.uv_semantics_all[0])
+    if require_sv_target_alpha:
+        bind.role = "alpha"
+        bind.channel_roles["opacity"] = "x"
+        if not any("feeds_sv_target_alpha" in e for e in bind.evidence):
+            raise ShaderBindingError(
+                f"site {site.sample_site_id} lacks SV_Target alpha evidence"
+            )
+    key = site.identity.as_key()
+    bind.evidence.append(
+        f"evaluated_sample_site={site.sample_site_id};{evidence_note}"
+    )
+    site_bindings[key] = bind
+    sample_sites.append(
+        {
+            "identity_key": key,
+            "sample_site_id": site.sample_site_id,
+            "pass_name": site.scenario,
+            "archive_member": secondary.pso_member,
+            "pso_sha256": secondary.pso_sha256,
+            "texture_register": treg,
+            "sampler_register": bind.sampler_reg,
+            "comps": list(bind.comps or []),
+            "uv_semantic": bind.uv_semantic,
+            "uv_semantics_all": list(bind.uv_semantics_all or []),
+            "role": bind.role,
+            "same_register_as_primary": treg in textures,
+            "origin": "evaluated_sample_site",
+            "status": site.status,
+            "branch_status": getattr(site, "branch_status", None),
+            "evidence": list(bind.evidence or []),
+        }
+    )
+    if treg not in textures:
+        textures[treg] = bind
+
+
+def extract_static_sample_sites(
+    *,
+    media_root: str,
+    shader_name: str,
+    cbmp: dict[int, int],
+    game_key: str | None = None,
+    pass_name: str = PRIMARY_RASTER_PASS,
+    pso_basename: str | None = None,
+) -> StaticShaderPassAnalysis:
+    """Instance-independent DXIL facts for one PSO — never MatI-selected values."""
+    if not shader_name:
+        raise ShaderBindingError("shader_name is empty")
+    if not media_root or not os.path.isdir(media_root):
+        raise ShaderBindingError(f"media_root missing: {media_root!r}")
+    zip_path, names = _find_zip_and_members(media_root, shader_name, game_key=game_key)
+    if pso_basename:
+        pso_member = _exact_named_pso(names, pso_basename)
+    elif pass_name == PRIMARY_RASTER_PASS:
+        pso_member = _exact_carlight_pso(names, shader_name)
+    else:
+        pso_member = _exact_named_pso(names, f"{shader_name}{pass_name}.pcdxil.pso")
+    sb_member = None
+    want = f"{shader_name}.shaderbin".lower()
+    for n in names:
+        if os.path.basename(n.replace("\\", "/")).lower() == want:
+            sb_member = n
+            break
+    if sb_member is None:
+        raise ShaderBindingError(f"shaderbin member missing in {zip_path}")
+    dxc = _addon_dxc()
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        return _analyze_named_pass(
+            media_root=media_root,
+            shader_name=shader_name,
+            pass_name=pass_name,
+            pso_member=pso_member,
+            sb_bytes=zf.read(sb_member),
+            pso_bytes=zf.read(pso_member),
+            cbmp=cbmp,
+            dxc=dxc,
+            game_key=game_key or "",
+            zip_basename=os.path.basename(zip_path),
+        )
+
+
 def extract_bindings(
     *,
     media_root: str,
@@ -1152,16 +1289,15 @@ def extract_bindings(
     params: dict,
     cbmp: dict[int, int],
     game_key: str | None = None,
+    material_instance_key: str | None = None,
 ) -> ShaderBindings:
-    """Static CarLight analysis + exact-SHA sample-site contract evaluation.
+    """Static pass analysis + MatI sample-site evaluation.
 
-    Additional passes contribute contracted sample sites (not register unions).
-    Instance MatI values select UVChoice / variant; static PSO analysis stays
-    cached without MatI contamination.
-
-    ``textures`` remains a compatibility TextureBinding bridge keyed by register;
-    authoritative per-site records live in ``sample_sites``.
+    For exact contracted SHAs, ``EvaluatedMaterialSampleSites`` is authoritative.
+    ``PassMergeSpec`` / ``_merge_pass_sites`` are never used on contracted SHAs.
     """
+    from .legacy_binding_bridge import is_contracted_shaderbin_sha
+    from .pass_contracts import load_shader_pass_contract
     from .sample_site_eval import evaluate_material_sample_sites
 
     if not shader_name:
@@ -1201,10 +1337,11 @@ def extract_bindings(
         passes_analyzed = [primary.pass_name]
         extra_pso_hashes: dict[str, str] = {}
         sample_sites: list[dict] = []
-        compatibility_bridge_used = False
+        site_bindings: dict[str, TextureBinding] = {}
         rejection_reasons: list[str] = []
+        contracted = is_contracted_shaderbin_sha(primary.shaderbin_sha256)
 
-        # Seed primary-pass sites (one row per register present in analysis).
+        # Primary static sites — not a register-merge bridge.
         for treg, bind in sorted(textures.items()):
             sample_sites.append(
                 {
@@ -1222,15 +1359,17 @@ def extract_bindings(
                     "uv_semantics_all": list(bind.uv_semantics_all or []),
                     "role": bind.role,
                     "same_register_as_primary": False,
-                    "origin": "primary_pass_bridge",
+                    "origin": "primary_static_analysis",
+                    "branch_status": "PASS_ONLY",
                     "evidence": list(bind.evidence or []),
                 }
             )
-            compatibility_bridge_used = True
 
         evaluated = evaluate_material_sample_sites(
             shaderbin_sha256=primary.shaderbin_sha256,
             params=params,
+            pso_members={PRIMARY_RASTER_PASS: primary.pso_member},
+            pso_shas={PRIMARY_RASTER_PASS: primary.pso_sha256},
         )
         if evaluated.variant.status == "REJECTED":
             msg = f"variant_rejected:{evaluated.variant.provenance}"
@@ -1244,8 +1383,6 @@ def extract_bindings(
             evidence.append(f"sample_site:{reason}")
             rejection_reasons.append(reason)
 
-        # Fail closed: unresolved/rejected *active* blender_import sites must not
-        # silently fall back to CarLight-only register bindings.
         bad_active = [
             s
             for s in evaluated.sites
@@ -1265,99 +1402,88 @@ def extract_bindings(
             if s.blender_import and s.status == "ACTIVE"
         ]
 
-        # One PassMergeSpec per site (compatibility adapter) — never collapse a
-        # pass to first-site UV/comps for all registers.
-        for spec in additional_passes_for_sha(primary.shaderbin_sha256):
-            matching = [
-                s
-                for s in active_sites
-                if s.scenario == spec.pass_name
-                and s.texture_register in spec.merge_texture_registers
-            ]
-            if not matching and (
-                spec.expected_uv_semantics is not None
-                and len(spec.expected_uv_semantics) == 1
-            ):
-                # Unique-UV JSON contracts without MatI Select (livery/reflector).
-                blocked = any(
-                    s.scenario == spec.pass_name
-                    and s.blender_import
-                    and s.status == "UNRESOLVED"
-                    for s in evaluated.sites
+        if contracted:
+            # Authoritative evaluated-site attachment — never PassMergeSpec.
+            contract = load_shader_pass_contract(primary.shaderbin_sha256) or {}
+            pass_by_scenario = {
+                str(p.get("scenario") or ""): p
+                for p in (contract.get("relevant_passes") or [])
+            }
+            analyzed_secondary: dict[str, StaticShaderPassAnalysis] = {}
+            for site in active_sites:
+                pass_row = pass_by_scenario.get(site.scenario) or {}
+                member = str(
+                    pass_row.get("archive_member")
+                    or site.identity.full_archive_member
+                    or ""
                 )
-                if blocked:
-                    continue
-                matching = []
-                # Synthetic one-site merge using the spec register.
-                matching_regs = list(spec.merge_texture_registers)
-            else:
-                matching_regs = [s.texture_register for s in matching]
-            if not matching and not matching_regs:
-                continue
-            if not matching_regs:
-                continue
-
-            member = _exact_named_pso(names, spec.pso_basename)
-            raw = zf.read(member)
-            secondary = _analyze_named_pass(
-                media_root=media_root,
-                shader_name=shader_name,
-                pass_name=spec.pass_name,
-                pso_member=member,
-                sb_bytes=sb_bytes,
-                pso_bytes=raw,
-                cbmp=cbmp,
-                dxc=dxc,
-                game_key=game_key or "",
-                zip_basename=os.path.basename(zip_path),
-            )
-            # Merge each register as its own site (already one per spec typically).
-            for treg in matching_regs:
-                site = next(
-                    (s for s in matching if s.texture_register == treg),
-                    None,
+                if not member:
+                    raise ShaderBindingError(
+                        f"contracted site {site.sample_site_id} missing archive_member"
+                    )
+                basename = os.path.basename(member.replace("\\", "/"))
+                if site.scenario not in analyzed_secondary:
+                    raw = zf.read(_exact_named_pso(names, basename))
+                    analyzed_secondary[site.scenario] = _analyze_named_pass(
+                        media_root=media_root,
+                        shader_name=shader_name,
+                        pass_name=site.scenario,
+                        pso_member=_exact_named_pso(names, basename),
+                        sb_bytes=sb_bytes,
+                        pso_bytes=raw,
+                        cbmp=cbmp,
+                        dxc=dxc,
+                        game_key=game_key or "",
+                        zip_basename=os.path.basename(zip_path),
+                    )
+                    passes_analyzed.append(site.scenario)
+                    evidence.append(
+                        f"evaluated_sample_site_pass="
+                        f"{analyzed_secondary[site.scenario].pso_member}"
+                    )
+                    extra_pso_hashes[f"pso_sha256:{site.scenario}"] = (
+                        analyzed_secondary[site.scenario].pso_sha256
+                    )
+                secondary = analyzed_secondary[site.scenario]
+                # PSO identity must match contract member when both present.
+                if site.identity.pso_sha256 and secondary.pso_sha256:
+                    if site.identity.pso_sha256 != secondary.pso_sha256:
+                        raise ShaderBindingError(
+                            f"contract/PSO SHA mismatch for {site.sample_site_id}: "
+                            f"contract={site.identity.pso_sha256[:12]}… "
+                            f"analyzed={secondary.pso_sha256[:12]}…"
+                        )
+                require_alpha = (
+                    "alpha" in str(site.semantic_role or "").lower()
+                    or "SV_Target.a" in str(site.final_use or "")
                 )
-                narrowed = PassMergeSpec(
-                    pass_name=spec.pass_name,
-                    pso_basename=spec.pso_basename,
-                    merge_texture_registers=(treg,),
-                    expected_uv_semantics=spec.expected_uv_semantics,
-                    expected_comps=(
-                        site.sampled_components
-                        if site and site.sampled_components
-                        else spec.expected_comps
-                    ),
-                    require_sv_target_alpha=spec.require_sv_target_alpha,
-                    evidence=spec.evidence,
-                    blender_relevance=spec.blender_relevance,
-                    expected_uv_expression=spec.expected_uv_expression,
-                )
-                _merge_pass_sites(
+                _attach_contracted_evaluated_site(
                     textures=textures,
                     sample_sites=sample_sites,
+                    site_bindings=site_bindings,
                     primary=primary,
                     secondary=secondary,
-                    spec=narrowed,
-                    site_identity_key=(
-                        site.identity.as_key() if site else f"{spec.pass_name}|t{treg}"
-                    ),
-                    resolved_texcoord=(
-                        site.resolved_texcoord if site else None
-                    ),
+                    site=site,
+                    require_sv_target_alpha=require_alpha,
+                    evidence_note=str(pass_row.get("reason") or ""),
                 )
-                compatibility_bridge_used = True
-                if site is not None and site.resolved_texcoord is not None:
-                    if treg in textures:
-                        bind = textures[treg]
-                        bind.uv_semantic = int(site.resolved_texcoord)
-                        bind.evidence.append(
-                            f"evaluated_sample_site={site.sample_site_id};"
-                            f"TEXCOORD{site.resolved_texcoord}"
-                        )
-            if spec.pass_name not in passes_analyzed:
-                passes_analyzed.append(spec.pass_name)
-            evidence.append(f"sample_site_contract_pass={member}")
-            extra_pso_hashes[f"pso_sha256:{spec.pass_name}"] = secondary.pso_sha256
+            authoritative = "EVALUATED_SAMPLE_SITES"
+            bridge_used = False
+        else:
+            # Non-contracted: primary-pass TextureBindings only (limited capability).
+            # additional_passes_for_sha is empty for these SHAs by construction.
+            if additional_passes_for_sha(primary.shaderbin_sha256):
+                # Should never happen — would be a contracted SHA.
+                raise ShaderBindingError(
+                    f"non-contracted SHA {primary.shaderbin_sha256[:12]}… "
+                    f"unexpectedly has PassMergeSpec rows — refuse legacy merge"
+                )
+            authoritative = "PRIMARY_PASS_TEXTURE_BINDINGS"
+            bridge_used = False
+            if material_instance_key:
+                evidence.append(
+                    f"non_contracted_primary_only instance={material_instance_key}"
+                )
 
     source_hashes = {
         "shaderbin_sha256": primary.shaderbin_sha256,
@@ -1374,7 +1500,10 @@ def extract_bindings(
         pass_name=primary.pass_name,
         passes_analyzed=passes_analyzed,
         sample_sites=sample_sites,
-        compatibility_bridge_used=compatibility_bridge_used,
+        site_bindings=site_bindings,
+        evaluated_sites=evaluated,
+        authoritative_model=authoritative,
+        compatibility_bridge_used=bridge_used,
         rejection_reasons=rejection_reasons,
     )
 
